@@ -1,0 +1,27 @@
+name: NPM - Checks and tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  checks:
+    name: "Check CLI code - NPM"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+      - run: npm install
+      - run: npm run prebuild
+      - run: npm run lint
+      - run: npm run format
+      - run: npm run test
