@@ -4,7 +4,7 @@
 
 import { GenerationParams, ProcessingUnitType } from "../params";
 import { ExeUnit, Allocation, MarketOrderSpec } from "@golem-sdk/golem-js";
-import { selectCheapestProvider } from "./selector";
+import { selectBestProvider } from "./selector";
 
 /**
  * Configuration for a specific processing unit type
@@ -105,7 +105,7 @@ export abstract class BaseRentalConfig {
           maxCpuPerHourPrice: this._config.maxCpuPerHourPrice ?? 0.0,
           maxEnvPerHourPrice: this._config.maxEnvPricePerHour,
         },
-        offerProposalSelector: selectCheapestProvider(rentalDurationHours),
+        offerProposalSelector: selectBestProvider(rentalDurationHours),
       },
       payment: {
         allocation,
@@ -179,7 +179,7 @@ export class CPURentalConfig extends BaseRentalConfig {
     const prefix = params.vanityAddressPrefix.toArg();
 
     // Create multiple prefix instances for parallel processing
-    const prefixes = ` ${prefix}`.repeat(cpuCount);
+    const prefixes = ` "no_default=1;prefix=${prefix}"`.repeat(cpuCount);
 
     const commandParts = [
       "parallel",
@@ -243,7 +243,7 @@ export class GPURentalConfig extends BaseRentalConfig {
       "-r",
       this.config.roundCount.toString(),
       "-p",
-      prefix,
+      `"no_default=1;prefix=${prefix}"`,
       "-b",
       params.singlePassSeconds.toString(),
       "-z",

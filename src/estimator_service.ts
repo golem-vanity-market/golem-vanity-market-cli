@@ -53,13 +53,14 @@ export class EstimatorService {
   public async initJobIfNotInitialized(
     jobId: string,
     providerName: string,
+    providerId: string,
     diff: number,
   ) {
     if (!this.totalEstimator) {
-      this.totalEstimator = new Estimator(diff, "total");
+      this.totalEstimator = new Estimator(diff, "total", "provider-total");
     }
     if (!this.estimators.has(jobId)) {
-      const est = new Estimator(diff, providerName);
+      const est = new Estimator(diff, providerName, providerId);
       this.estimators.set(jobId, est);
 
       const queue: ProofEntryResult[] = [];

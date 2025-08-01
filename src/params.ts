@@ -6,7 +6,9 @@ import { getBytes, hexlify } from "ethers";
 export interface GenerationParams {
   publicKey: string;
   vanityAddressPrefix: GenerationPrefix;
-  budgetGlm: number;
+  budgetInitial: number;
+  budgetTopUp: number;
+  budgetLimit: number;
   numberOfWorkers: number;
   singlePassSeconds: number;
   numResults: bigint;

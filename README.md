@@ -87,6 +87,10 @@ npm run build
 # set up the env variable, use the template and fill the values
 cp .env.template .env
 
+# first time, create a local db,
+# we use it for tracking performance of providers
+npm run db:setup
+
 # Run the tool locally to see available commands
 npm run dev -- generate --help
 ```
@@ -130,7 +134,7 @@ npm run start -- generate \
   --public-key ./my-key.public \
   --processing-unit cpu \
   --vanity-address-prefix 0x1337 \
-  --budget-glm 10
+  --budget-limit 10
 ```
 
 ### Advanced Usage Examples
@@ -144,7 +148,7 @@ npm run start -- generate \
   --public-key ./my-key.public \
   --vanity-address-prefix 0xbeef \
   --processing-unit gpu \
-  --budget-glm 20 \
+  --budget-limit 20 \
   --num-workers 3
 ```
 
@@ -158,7 +162,7 @@ npm run start -- generate \
   --processing-unit gpu \
   --vanity-address-prefix 0xcafe \
   --num-results 5 \
-  --budget-glm 10 \
+  --budget-limit 10 \
   --results-file vanity-addresses.json \
   --non-interactive
 ```
@@ -174,7 +178,7 @@ npm run start -- generate \
   --processing-unit cpu \
   --single-pass-sec 30 \
   --min-offers 10 \
-  --budget-glm 10 \
+  --budget-limit 10 \
   --min-offers-timeout-sec 60
 ```
 
@@ -195,14 +199,17 @@ This command generates vanity addresses based on your specified parameters.
 - `--num-results <count>`: The number of vanity addresses to generate (default: `1`).
 - `--num-workers <count>`: The number of parallel workers to use (default: `1`).
 - `--single-pass-sec <seconds>`: The duration for each generation pass (default: `20`).
-- `--results-file <path>`: The file path to save the results in JSON format (default: `golem_results.json`).
+- `--results-file <path>`: The file path to save the results in JSON format (optional).
+- `--db <path>`: Database file path for storing session data (default: `./db.sqlite`).
 - `--non-interactive`: Skip confirmation prompts for automated use.
 - `--min-offers <count>`: The minimum number of provider offers to wait for before starting (default: `5`).
 - `--min-offers-timeout-sec <seconds>`: The maximum time to wait for the minimum number of offers (default: `30`).
 
-#### Budget Management:
+##### Budget Management:
 
-- `--budget-glm <amount>`: **(Required)** The maximum total GLM budget for the generation task.
+- `--budget-initial <amount>`: The initial GLM amount for the payment allocation (default: `1`).
+- `--budget-top-up <amount>`: The amount in GLM to add to the allocation when its balance runs low (default: `1`).
+- `--budget-limit <amount>`: **(Required)** The total budget cap in GLM for the entire generation process. Work stops when this limit is reached.
 
 ## Cost Estimation
 
@@ -254,6 +261,33 @@ npm run build
 
 # Start the built version of the tool
 npm start
+```
+
+### Database
+
+````bash
+### Database Commands
+
+The CLI provides several npm scripts for managing the local database:
+
+```bash
+# Initialize the database (run this before first use)
+npm run db:setup
+
+# Reset the database (drops and recreates tables)
+npm run db:clear
+````
+
+The default database file is `./db.sqlite`, but you can specify a custom path using the `--db <path>` option.
+
+### Golem network
+
+Scanning the Golem network for offers:
+
+```bash
+npm run list-cpu-offers
+
+npm run list-gpu-offers
 ```
 
 ## ⚙️ Environment Variables

@@ -1,6 +1,6 @@
 import { OfferProposal } from "@golem-sdk/golem-js";
 
-export const selectCheapestProvider =
+export const selectBestProvider =
   (estimatedRentHours: number) =>
   (proposals: OfferProposal[]): OfferProposal => {
     if (proposals.length === 0) {

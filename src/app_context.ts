@@ -2,15 +2,24 @@ import * as otl from "@opentelemetry/api";
 import { Logger } from "@golem-sdk/golem-js";
 import { pinoLogger } from "@golem-sdk/pino-logger";
 import { MetricsCollector } from "./metrics_collector";
+import { LibSQLDatabase } from "drizzle-orm/libsql";
 
 export class AppContext {
   private _activeContext: otl.Context;
   private logger?: Logger;
   private tracer?: otl.Tracer;
   private collector?: MetricsCollector;
+  private db?: LibSQLDatabase;
 
   constructor(ctx: otl.Context) {
     this._activeContext = ctx;
+  }
+
+  public getDB(): LibSQLDatabase {
+    if (!this.db) {
+      throw new Error("DB is not set in the AppContext");
+    }
+    return this.db;
   }
 
   public WithLogger(logger: Logger): AppContext {
@@ -18,6 +27,16 @@ export class AppContext {
     newCtx.logger = logger;
     newCtx.tracer = this.tracer;
     newCtx.collector = this.collector;
+    newCtx.db = this.db;
+    return newCtx;
+  }
+
+  public WithDatabase(db: LibSQLDatabase): AppContext {
+    const newCtx = new AppContext(this._activeContext);
+    newCtx.logger = this.logger;
+    newCtx.tracer = this.tracer;
+    newCtx.collector = this.collector;
+    newCtx.db = db;
     return newCtx;
   }
 
@@ -26,6 +45,7 @@ export class AppContext {
     newCtx.tracer = tracer;
     newCtx.logger = this.logger;
     newCtx.collector = this.collector;
+    newCtx.db = this.db;
     return newCtx;
   }
 
@@ -34,6 +54,7 @@ export class AppContext {
     newCtx.collector = collector;
     newCtx.logger = this.logger;
     newCtx.tracer = this.tracer;
+    newCtx.db = this.db;
     return newCtx;
   }
 
@@ -49,7 +70,10 @@ export class AppContext {
     const newOtlCtx = this._activeContext.setValue(otl_key, value);
 
     const newCtx = new AppContext(newOtlCtx);
-    newCtx.logger = this.logger; // Preserve the logger
+    newCtx.logger = this.logger;
+    newCtx.tracer = this.tracer;
+    newCtx.collector = this.collector;
+    newCtx.db = this.db;
     return newCtx;
   }
 
@@ -65,6 +89,18 @@ export class AppContext {
   public consoleError(message?: unknown, ...optionalParams: unknown[]): void {
     console.error(message, ...optionalParams);
   }
+}
+
+export function setJobId(ctx: AppContext, jobId: string): AppContext {
+  return ctx.withValue("jobId", jobId);
+}
+
+export function getJobId(ctx: AppContext): string {
+  const jobId = ctx.getValue<string>("jobId");
+  if (!jobId) {
+    throw new Error("Job ID not found in AppContext");
+  }
+  return jobId;
 }
 
 /**

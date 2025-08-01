@@ -66,7 +66,7 @@ export function displaySummary(estimators: Map<string, Estimator>): void {
   });
   for (const [jobId, est] of copyEntries) {
     const info = est.currentInfo();
-    displayEstimatorSummary(est, `${info.provName} - ${jobId.slice(0, 5)}`);
+    displayEstimatorSummary(est, `${info.providerName} - ${jobId.slice(0, 5)}`);
   }
 }
 

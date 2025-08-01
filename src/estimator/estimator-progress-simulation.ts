@@ -11,7 +11,7 @@ function randomDifficultyCheck(difficulty: number): boolean {
 }
 
 async function run() {
-  const est = new Estimator(simulatedDifficulty, "test");
+  const est = new Estimator(simulatedDifficulty, "test", "test-provider");
 
   est.addProvedWork(1);
 

@@ -63,7 +63,7 @@ describe("Vanity Address Generator CLI - Step 2", () => {
       expect(result).toContain("generate");
       expect(result).toContain("public-key");
       expect(result).toContain("vanity-address-prefix");
-      expect(result).toContain("budget-glm");
+      expect(result).toContain("budget-limit");
       expect(result).toContain("Path to file containing the public key");
     });
 
@@ -80,7 +80,7 @@ describe("Vanity Address Generator CLI - Step 2", () => {
     it("should validate public key file exists", () => {
       try {
         execSync(
-          `node ${cliPath} generate --public-key /nonexistent/file.txt --vanity-address-prefix test --budget-glm 100`,
+          `node ${cliPath} generate --public-key /nonexistent/file.txt --vanity-address-prefix test --budget-limit 100`,
           { encoding: "utf8" },
         );
         fail("Should have thrown an error for nonexistent file");
@@ -95,7 +95,7 @@ describe("Vanity Address Generator CLI - Step 2", () => {
     it("should validate public key format from file", () => {
       try {
         execSync(
-          `node ${cliPath} generate --public-key ${invalidPublicKeyPath} --vanity-address-prefix test --budget-glm 100`,
+          `node ${cliPath} generate --public-key ${invalidPublicKeyPath} --vanity-address-prefix test --budget-limit 100`,
           { encoding: "utf8" },
         );
         fail("Should have thrown an error for invalid public key");
@@ -107,10 +107,10 @@ describe("Vanity Address Generator CLI - Step 2", () => {
       }
     });
 
-    it("should validate budget-glm is a positive number", () => {
+    it("should validate budget-limit is a positive number", () => {
       try {
         execSync(
-          `node ${cliPath} generate --public-key ${validPublicKeyPath} --vanity-address-prefix test --budget-glm -50`,
+          `node ${cliPath} generate --public-key ${validPublicKeyPath} --vanity-address-prefix test --budget-limit -50`,
           { encoding: "utf8" },
         );
         fail("Should have thrown an error for negative budget");
@@ -195,9 +195,12 @@ describe("Unit Tests for Generate Command Functions", () => {
         publicKey:
           "0x04d4a96d675423cc05f60409c48b084a53d3fa0ac59957939f526505c43f975b77fabab74decd66d80396308db9cb4db13b0c273811d51a1773d6d9e2dbcac1d28",
         vanityAddressPrefix: "0x" + "1".repeat(8),
-        budgetGlm: 100,
+        budgetInitial: 1,
+        budgetTopUp: 1,
+        budgetLimit: 100,
         minOffers: 5,
         minOffersTimeoutSec: 30,
+        dbPath: "./db.sqlite",
       };
 
       expect(() => validateGenerateOptions(validOptions)).not.toThrow();
@@ -209,9 +212,12 @@ describe("Unit Tests for Generate Command Functions", () => {
         numResults: 1n,
         numWorkers: 1,
         vanityAddressPrefix: "0x" + "1".repeat(8),
-        budgetGlm: 100,
+        budgetInitial: 1,
+        budgetTopUp: 1,
+        budgetLimit: 100,
         minOffers: 5,
         minOffersTimeoutSec: 30,
+        dbPath: "./db.sqlite",
       };
 
       expect(() => validateGenerateOptions(invalidOptions)).toThrow(
@@ -226,9 +232,12 @@ describe("Unit Tests for Generate Command Functions", () => {
         numWorkers: 1,
         publicKey: "invalid-key",
         vanityAddressPrefix: "0x" + "1".repeat(8),
-        budgetGlm: 100,
+        budgetInitial: 1,
+        budgetTopUp: 1,
+        budgetLimit: 100,
         minOffers: 5,
         minOffersTimeoutSec: 30,
+        dbPath: "./db.sqlite",
       };
 
       expect(() => validateGenerateOptions(invalidOptions)).toThrow(
@@ -243,9 +252,12 @@ describe("Unit Tests for Generate Command Functions", () => {
         numWorkers: 1,
         publicKey:
           "0x04d4a96d675423cc05f60409c48b084a53d3fa0ac59957939f526505c43f975b77fabab74decd66d80396308db9cb4db13b0c273811d51a1773d6d9e2dbcac1d28",
-        budgetGlm: 100,
+        budgetInitial: 1,
+        budgetTopUp: 1,
+        budgetLimit: 100,
         minOffers: 5,
         minOffersTimeoutSec: 30,
+        dbPath: "./db.sqlite",
       };
 
       expect(() => validateGenerateOptions(invalidOptions)).toThrow(
@@ -261,9 +273,12 @@ describe("Unit Tests for Generate Command Functions", () => {
         publicKey:
           "0x04d4a96d675423cc05f60409c48b084a53d3fa0ac59957939f526505c43f975b77fabab74decd66d80396308db9cb4db13b0c273811d51a1773d6d9e2dbcac1d28",
         vanityAddressPrefix: "",
-        budgetGlm: 100,
+        budgetInitial: 1,
+        budgetTopUp: 1,
+        budgetLimit: 100,
         minOffers: 5,
         minOffersTimeoutSec: 30,
+        dbPath: "./db.sqlite",
       };
 
       expect(() => validateGenerateOptions(invalidOptions)).toThrow(
@@ -279,9 +294,12 @@ describe("Unit Tests for Generate Command Functions", () => {
         publicKey:
           "0x04d4a96d675423cc05f60409c48b084a53d3fa0ac59957939f526505c43f975b77fabab74decd66d80396308db9cb4db13b0c273811d51a1773d6d9e2dbcac1d28",
         vanityAddressPrefix: "0x" + "a".repeat(17), // Maximum is 6 characters
-        budgetGlm: 100,
+        budgetInitial: 1,
+        budgetTopUp: 1,
+        budgetLimit: 100,
         minOffers: 5,
         minOffersTimeoutSec: 30,
+        dbPath: "./db.sqlite",
       };
 
       expect(() => validateGenerateOptions(invalidOptions)).toThrow(
@@ -297,9 +315,12 @@ describe("Unit Tests for Generate Command Functions", () => {
         publicKey:
           "0x04d4a96d675423cc05f60409c48b084a53d3fa0ac59957939f526505c43f975b77fabab74decd66d80396308db9cb4db13b0c273811d51a1773d6d9e2dbcac1d28",
         vanityAddressPrefix: "0x" + "1".repeat(8),
-        budgetGlm: -1,
+        budgetInitial: -1, // Invalid
+        budgetTopUp: 1,
+        budgetLimit: 100,
         minOffers: 5,
         minOffersTimeoutSec: 30,
+        dbPath: "./db.sqlite",
       };
 
       expect(() => validateGenerateOptions(invalidOptions)).toThrow(
@@ -315,9 +336,12 @@ describe("Unit Tests for Generate Command Functions", () => {
         publicKey:
           "0x04d4a96d675423cc05f60409c48b084a53d3fa0ac59957939f526505c43f975b77fabab74decd66d80396308db9cb4db13b0c273811d51a1773d6d9e2dbcac1d28",
         vanityAddressPrefix: "0x" + "1".repeat(8),
-        budgetGlm: 1001, // Maximum is 1000
+        budgetInitial: 11,
+        budgetTopUp: 1,
+        budgetLimit: 1001,
         minOffers: 5,
         minOffersTimeoutSec: 30,
+        dbPath: "./db.sqlite",
       };
 
       expect(() => validateGenerateOptions(invalidOptions)).toThrow(
@@ -332,9 +356,12 @@ describe("Unit Tests for Generate Command Functions", () => {
         publicKey:
           "0x04d4a96d675423cc05f60409c48b084a53d3fa0ac59957939f526505c43f975b77fabab74decd66d80396308db9cb4db13b0c273811d51a1773d6d9e2dbcac1d28",
         vanityAddressPrefix: "0x" + "1".repeat(8),
-        budgetGlm: 100,
+        budgetInitial: 1,
+        budgetTopUp: 1,
+        budgetLimit: 100,
         minOffers: -1, // Invalid
         minOffersTimeoutSec: 30,
+        dbPath: "./db.sqlite",
       };
 
       expect(() => validateGenerateOptions(invalidOptions)).toThrow(
@@ -349,9 +376,12 @@ describe("Unit Tests for Generate Command Functions", () => {
         publicKey:
           "0x04d4a96d675423cc05f60409c48b084a53d3fa0ac59957939f526505c43f975b77fabab74decd66d80396308db9cb4db13b0c273811d51a1773d6d9e2dbcac1d28",
         vanityAddressPrefix: "0x" + "1".repeat(8),
-        budgetGlm: 100,
+        budgetInitial: 1,
+        budgetTopUp: 1,
+        budgetLimit: 100,
         minOffers: 5,
         minOffersTimeoutSec: -10, // Invalid
+        dbPath: "./db.sqlite",
       };
 
       expect(() => validateGenerateOptions(invalidOptions)).toThrow(

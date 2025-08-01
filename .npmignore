@@ -1,0 +1,28 @@
+# Development tools
+tools/*.js
+
+# Test files
+src/__tests__/
+test_data/
+
+# Development configuration
+eslint.config.mjs
+tsconfig.json
+dev_test.bat
+
+# Documentation
+CLAUDE.md
+PLAN.md
+
+# Logs and results
+logs/
+*.csv
+*.jsonl
+tmp_result*.json
+
+# Monitoring configuration
+monitoring/
+
+# Sample keys (security)
+*.private
+*.pub

@@ -1,5 +1,5 @@
 import { OfferProposal } from "@golem-sdk/golem-js";
-import { selectCheapestProvider } from "../node_manager/selector";
+import { selectBestProvider } from "../node_manager/selector";
 
 describe("Cheapest Proposal Selector", () => {
   it("should select the cheapest proposal", () => {
@@ -15,7 +15,7 @@ describe("Cheapest Proposal Selector", () => {
 
     const proposals = [mockProposal1, mockProposal2, mockProposal3];
     const estimatedRentHours = 1;
-    const selector = selectCheapestProvider(estimatedRentHours);
+    const selector = selectBestProvider(estimatedRentHours);
     expect(selector(proposals)).toBe(mockProposal2);
     expect(mockProposal1.getEstimatedCost).toHaveBeenCalledWith(
       estimatedRentHours,

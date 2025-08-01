@@ -7,8 +7,17 @@ export interface EstimatorInfo {
   probabilityFactor: number;
   remainingTimeSec: number | null;
   estimatedSpeed: SpeedEstimation | null;
-  provName: string;
+  estimatedSpeed5m: SpeedEstimation;
+  estimatedSpeed10m: SpeedEstimation;
+  estimatedSpeed20m: SpeedEstimation;
+  estimatedSpeed1h: SpeedEstimation;
+  providerName: string;
+  providerId: string;
   cost: number;
+  lastUpdated: Date;
+  totalEfficiency: number | null;
+  // @todo This field should be elsewhere, but we lack object that is keeping job state and allows to control job
+  stopping?: boolean; // Optional field to indicate if the estimation is stopping
 }
 
 export function formatEstimatorInfo(info: EstimatorInfo) {
@@ -41,6 +50,9 @@ class SpeedEstimation {
   startAttempts: number;
   currentCost: number; // Default value, can be set later
   startCost: number;
+  efficiency: number | null; // Default value, can be set later
+  speed: number;
+  costPerHour: number;
 
   constructor(
     currentTimePoint: Date,
@@ -49,16 +61,20 @@ class SpeedEstimation {
     startAttempts: number,
     currentCost: number = 0, // Default value, can be set later
     startCost: number = 0, // Default value, can be set later
+    efficiency: number | null = null, // Default value, can be set later
   ) {
     this.currentTimePoint = currentTimePoint;
     this.startTimePoint = startTimePoint;
     this.currentAttempts = currentAttempts;
-    this.startAttempts = startAttempts; // Default value, can be set later
+    this.startAttempts = startAttempts;
     this.currentCost = currentCost;
-    this.startCost = startCost; // Default value, can be set later
+    this.startCost = startCost;
+    this.efficiency = efficiency;
+    this.speed = this._speed();
+    this.costPerHour = this._costPerHour();
   }
 
-  get speed(): number {
+  _speed(): number {
     const timeDiff =
       this.currentTimePoint.getTime() - this.startTimePoint.getTime();
     if (timeDiff <= 0) {
@@ -67,7 +83,7 @@ class SpeedEstimation {
     return (this.currentAttempts - this.startAttempts) / (timeDiff / 1000); // Speed in attempts per second
   }
 
-  get costPerHour(): number {
+  _costPerHour(): number {
     const timeDiff =
       this.currentTimePoint.getTime() - this.startTimePoint.getTime();
     if (timeDiff <= 0) {
@@ -86,12 +102,15 @@ export class Estimator {
   totalAttempts: number = 0; // Total attempts made
   totalSuccesses: number = 0;
   providerName: string;
+  providerId: string;
   currentCost: number = 0;
+  stopping: boolean = false; // Flag to indicate if the estimation is stopping
   _entries: EstimatorHistoryEntry[] = [];
 
-  constructor(targetDifficulty: number, provName: string) {
+  constructor(targetDifficulty: number, provName: string, providerId: string) {
     this.targetDifficulty = targetDifficulty;
     this.providerName = provName;
+    this.providerId = providerId;
     this.addProvedWork(0);
   }
 
@@ -102,11 +121,36 @@ export class Estimator {
     }
   }
 
-  _findLastUsableEntry(): EstimatorHistoryEntry {
+  _findOldestUsableEntry(): EstimatorHistoryEntry {
     if (this._entries.length < MAX_USABLE_HISTORY_SIZE) {
       return this._entries[0];
     }
     return this._entries[this._entries.length - MAX_USABLE_HISTORY_SIZE];
+  }
+
+  _getOldestRecentEntry(maxAgeSec: number): EstimatorHistoryEntry {
+    const cutoff =
+      this._entries[this._entries.length - 1].timePoint.getTime() -
+      maxAgeSec * 1000;
+
+    for (let i = 0; i < this._entries.length; i++) {
+      if (this._entries[i].timePoint.getTime() >= cutoff) {
+        return this._entries[i];
+      }
+    }
+
+    return this._entries[this._entries.length - 1];
+  }
+
+  _findNewestUsableEntry(): EstimatorHistoryEntry {
+    return this._entries[this._entries.length - 1];
+  }
+
+  _lastUpdated(): Date {
+    if (this._entries.length === 0) {
+      return new Date(0); // Return epoch if no entries
+    }
+    return this._entries[this._entries.length - 1].timePoint;
   }
 
   info() {
@@ -114,7 +158,8 @@ export class Estimator {
   }
 
   estimateTime(): number | null {
-    const speed = this.estimatedSpeed();
+    //by default estimate this base on last 10 minutes
+    const speed = this.estimatedSpeed(600);
     if (speed === null || speed.speed <= 0) {
       return null;
     }
@@ -125,7 +170,7 @@ export class Estimator {
     this.currentCost = cost;
   }
 
-  public async addProvedWork(attempts: number, isSuccess: boolean = false) {
+  public addProvedWork(attempts: number, isSuccess: boolean = false) {
     if (isSuccess) {
       this.currentAttempts = 0; // Reset attempts on success
     } else {
@@ -143,17 +188,26 @@ export class Estimator {
     });
   }
 
-  estimatedSpeed(): SpeedEstimation | null {
-    const entry = this._findLastUsableEntry();
-    const startTimePoint = entry.timePoint;
+  estimatedSpeed(timeFrameSecs: number): SpeedEstimation {
+    const entryOld = this._getOldestRecentEntry(timeFrameSecs);
+    const entryNew = this._findNewestUsableEntry();
+
+    let efficiency = null;
+    if (entryNew.cost - entryOld.cost > 0) {
+      efficiency =
+        (entryNew.attempts - entryOld.attempts) /
+        (entryNew.cost - entryOld.cost) /
+        1e12; // Efficiency in TH/GLM
+    }
 
     return new SpeedEstimation(
-      new Date(),
-      new Date(startTimePoint),
-      this.totalAttempts,
-      entry ? entry.attempts : 0,
-      this.currentCost,
-      entry ? entry.cost : 0,
+      new Date(entryNew.timePoint),
+      new Date(entryOld.timePoint),
+      entryNew.attempts,
+      entryOld.attempts,
+      entryNew.cost,
+      entryOld.cost,
+      efficiency,
     );
   }
 
@@ -189,8 +243,16 @@ export class Estimator {
 
     const luckFactor = this.luckFactor(this.currentAttempts);
     const remainingTimeSec = this.estimateTime();
-    const estimatedSpeed = this.estimatedSpeed();
+    const estimatedSpeed1h = this.estimatedSpeed(3600);
+    const estimatedSpeed20m = this.estimatedSpeed(20 * 60);
+    const estimatedSpeed10m = this.estimatedSpeed(10 * 60);
+    const estimatedSpeed5m = this.estimatedSpeed(5 * 60);
+    const estimatedSpeed = this.estimatedSpeed(60);
 
+    const totalEfficiency =
+      this.currentCost > 0
+        ? this.totalAttempts / this.currentCost / 1e12
+        : null;
     return {
       totalSuccesses: this.totalSuccesses,
       attempts: this.totalAttempts,
@@ -198,8 +260,16 @@ export class Estimator {
       probabilityFactor: this.estimateProbability(this.currentAttempts),
       remainingTimeSec: remainingTimeSec,
       estimatedSpeed: estimatedSpeed,
-      provName: this.providerName,
+      estimatedSpeed5m: estimatedSpeed5m,
+      estimatedSpeed10m: estimatedSpeed10m,
+      estimatedSpeed20m: estimatedSpeed20m,
+      estimatedSpeed1h: estimatedSpeed1h,
+      providerName: this.providerName,
+      providerId: this.providerId,
       cost: this.currentCost,
+      lastUpdated: this._lastUpdated(),
+      totalEfficiency,
+      stopping: this.stopping || false, // Include stopping status
     };
   }
 }

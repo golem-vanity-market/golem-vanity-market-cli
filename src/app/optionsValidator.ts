@@ -23,7 +23,6 @@ interface GenerateCmdOptions {
   publicKey?: string; // The actual public key content
   publicKeyPath?: string; // Path to the public key file
   vanityAddressPrefix?: string;
-  budgetGlm?: number;
   prefix?: string;
   resultsFile?: string; // Path to save results
   processingUnit?: string; // Processing unit type ('cpu' or 'gpu')
@@ -33,6 +32,10 @@ interface GenerateCmdOptions {
   nonInteractive: boolean; // Run in non-interactive mode
   minOffers: number; // Minimum offers to wait for
   minOffersTimeoutSec: number; // Timeout for waiting for enough offers (`minOffers`)
+  budgetInitial: number;
+  budgetTopUp: number;
+  budgetLimit: number;
+  dbPath: string; //Location of the database
 }
 
 /**
@@ -40,7 +43,9 @@ interface GenerateCmdOptions {
  */
 interface GenerateOptionsValidated {
   publicKey: PublicKey; // The actual public key content
-  budgetGlm?: number;
+  budgetInitial: number;
+  budgetTopUp: number;
+  budgetLimit: number;
   vanityAddressPrefix: GenerationPrefix;
   processingUnitType: ProcessingUnitType;
 }
@@ -144,7 +149,7 @@ class PublicKey {
  * @returns ProcessingUnitType enum value
  * @throws {GenerateCmdOptValidationError} When processing unit type is invalid
  */
-function validateProcessingUnit(
+export function validateProcessingUnit(
   processingUnitType?: string,
 ): ProcessingUnitType {
   if (!processingUnitType) {
@@ -211,23 +216,38 @@ function validateGenerateOptions(
   }
 
   // Validate budget constraints
-  if (options.budgetGlm === undefined || options.budgetGlm === null) {
-    throw new GenerateCmdOptValidationError("Budget is required", "budgetGlm");
-  }
+  const validateBudget = (optionName: string, optionValue: unknown) => {
+    if (optionValue === undefined || optionValue === null) {
+      throw new GenerateCmdOptValidationError("Budget is required", optionName);
+    }
+    const valueAsNumber = parseFloat(optionValue.toString());
+    if (isNaN(valueAsNumber)) {
+      throw new GenerateCmdOptValidationError(
+        "Budget must be a number",
+        optionName,
+      );
+    }
+    if (valueAsNumber <= 0) {
+      throw new GenerateCmdOptValidationError(
+        "Budget must be a positive number",
+        optionName,
+      );
+    }
+    if (valueAsNumber > MAX_BUDGET_GLM) {
+      throw new GenerateCmdOptValidationError(
+        `Budget exceeds maximum allowed. Maximum is ${MAX_BUDGET_GLM} GLM`,
+        optionName,
+      );
+    }
+    return valueAsNumber;
+  };
 
-  if (options.budgetGlm <= 0) {
-    throw new GenerateCmdOptValidationError(
-      "Budget must be a positive number",
-      "budgetGlm",
-    );
-  }
-
-  if (options.budgetGlm > MAX_BUDGET_GLM) {
-    throw new GenerateCmdOptValidationError(
-      `Budget exceeds maximum allowed. Maximum is ${MAX_BUDGET_GLM} GLM`,
-      "budgetGlm",
-    );
-  }
+  const parsedBudgetInitial = validateBudget(
+    "budgetInitial",
+    options.budgetInitial,
+  );
+  const parsedBudgetTopUp = validateBudget("budgetTopUp", options.budgetTopUp);
+  const parsedBudgetLimit = validateBudget("budgetLimit", options.budgetLimit);
 
   if (options.minOffers < 0 || isNaN(options.minOffers)) {
     throw new GenerateCmdOptValidationError(
@@ -249,7 +269,9 @@ function validateGenerateOptions(
   return {
     publicKey: publicKey,
     vanityAddressPrefix: new GenerationPrefix(options.vanityAddressPrefix),
-    budgetGlm: options.budgetGlm,
+    budgetInitial: parsedBudgetInitial,
+    budgetTopUp: parsedBudgetTopUp,
+    budgetLimit: parsedBudgetLimit,
     processingUnitType: processingUnitType,
   };
 }

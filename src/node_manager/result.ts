@@ -61,6 +61,8 @@ export function parseVanityResults(
       continue;
     }
   }
+  //TODO reputation
+  //add info about non matching lines
   return { results, failedLines };
 }
 

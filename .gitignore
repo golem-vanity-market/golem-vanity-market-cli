@@ -45,3 +45,13 @@ junit.xml
 
 # generated files
 src/version.ts
+
+# database files
+drizzle
+db.sqlite
+
+# log and metrics directory
+logs/
+
+# result files
+result*

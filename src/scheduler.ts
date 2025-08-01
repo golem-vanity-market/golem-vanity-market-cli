@@ -3,24 +3,46 @@ import {
   GolemSessionManager,
   OnErrorHandler,
 } from "./node_manager/golem_session";
-import { AppContext } from "./app_context";
+import { AppContext, setJobId } from "./app_context";
 import { GenerationParams } from "./params";
 import { EstimatorService } from "./estimator_service";
 import { getProviderEstimatorSummaryMessage } from "./ui/displaySummary";
+import { Problem } from "./lib/db/schema";
+import { SchedulerRecorder } from "./scheduler/types";
+import { v4 as uuidv4 } from "uuid";
 
 /**
  * The purpose of the Scheduler is to continuously generate tasks until either enough addresses are found or the budget is exhausted.
  */
 export class Scheduler {
+  schedulerRecorder: SchedulerRecorder;
   constructor(
     private readonly sessionManager: GolemSessionManager,
     private readonly estimator: EstimatorService,
-  ) {}
+    recorder: SchedulerRecorder,
+  ) {
+    this.schedulerRecorder = recorder;
+  }
 
   public async runGenerationProcess(
     ctx: AppContext,
     params: GenerationParams,
   ): Promise<void> {
+    const jobId = uuidv4();
+
+    const problem: Problem = {
+      type: "prefix",
+      specifier: params.vanityAddressPrefix.fullPrefix(),
+    };
+
+    this.schedulerRecorder.startGenerationJob(
+      ctx,
+      jobId,
+      problem,
+      params,
+      this.sessionManager.getProcessingUnitType(),
+    );
+
     const onError: OnErrorHandler = async ({ error, provider }) => {
       ctx
         .L()
@@ -31,25 +53,48 @@ export class Scheduler {
       return false; // Destroy the rental
     };
 
-    const budgetMonitor = new BudgetMonitor(this.sessionManager);
+    const budgetMonitor = new BudgetMonitor(
+      this.sessionManager,
+      params.budgetTopUp,
+      params.budgetLimit,
+    );
 
-    if (!(await budgetMonitor.hasSufficientBudget())) {
-      ctx.L().warn("Insufficient budget to start the work. Stopping.");
-      console.warn("⚠️ Insufficient budget to start the work. Stopping.");
-      return;
-    }
+    budgetMonitor.startMonitoring({
+      onAllocationAmendError: (error) => {
+        ctx.L().error("Error monitoring and amending budget:", error);
+        ctx.consoleError(
+          "⚠️ Cannot extend allocation, do you have enough GLMs? Stopping work ...",
+        );
+        this.sessionManager.stopWork("Cannot extend allocation");
+      },
+      onAllocationAmendSuccess: (allocation) => {
+        ctx
+          .L()
+          .info(
+            `Extended allocation to (timeout=${allocation.timeout}, budget=${allocation.totalAmount})`,
+          );
+        budgetMonitor.displayBudgetInfo(ctx, allocation);
+      },
+      onBudgetExhausted: () => {
+        ctx.L().info("Budget exhausted, stopping work ...");
+        ctx.consoleInfo("💰⚠️ Budget exhausted, stopping work ...");
+        this.sessionManager.stopWork("Budget exhausted");
+      },
+    });
 
-    await budgetMonitor.displayBudgetInfo();
     console.log(
       `🔨 Starting work with ${params.numberOfWorkers} concurrent providers...`,
     );
 
+    const newCtx = setJobId(ctx, jobId);
     // Create and start multiple providers in parallel
     const workerPromises = Array.from({ length: params.numberOfWorkers }, () =>
-      this.workInLoop(ctx, params, onError, budgetMonitor),
+      this.workInLoop(newCtx, params, onError),
     );
 
     await Promise.allSettled(workerPromises);
+
+    budgetMonitor.stop();
 
     console.log(
       `✅ Generation process completed. Found ${this.sessionManager.noResults}/${params.numResults} addresses.`,
@@ -65,7 +110,6 @@ export class Scheduler {
     ctx: AppContext,
     params: GenerationParams,
     onError: OnErrorHandler,
-    budgetMonitor: BudgetMonitor,
   ): Promise<void> {
     // This loop continues as long as the overall job is not done
     while (!this.sessionManager.isWorkStopped()) {
@@ -81,13 +125,6 @@ export class Scheduler {
         );
         this.sessionManager.stopWork("Target number of results reached"); // Stop all other providers
         break; // Exit the loop if the target is reached
-      }
-
-      // Check budget before this worker starts a new task
-      if (!(await budgetMonitor.hasSufficientBudget())) {
-        ctx.L().warn("Insufficient budget to continue work. Stopping.");
-        this.sessionManager.stopWork("Insufficient budget"); // Stop all other providers
-        break; // Exit this worker's loop
       }
 
       try {
