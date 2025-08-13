@@ -1,5 +1,4 @@
 import { ProviderInfo } from "@golem-sdk/golem-js";
-import { ProcessingUnitType } from "../params";
 
 export interface ProofEntryResult {
   addr: string;
@@ -7,5 +6,5 @@ export interface ProofEntryResult {
   pubKey: string;
   provider: ProviderInfo;
   jobId: string;
-  cpu: ProcessingUnitType;
+  workDone: number;
 }

@@ -8,3 +8,5 @@ export * from "./estimator_service";
 export * from "./node_manager/golem_session";
 export * from "./node_manager/config";
 export * from "./app/optionsValidator";
+export * from "./node_manager/types";
+export * from "./scheduler/types";

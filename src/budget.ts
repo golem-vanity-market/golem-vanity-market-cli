@@ -12,6 +12,11 @@ export class BudgetMonitor {
   private monitorIntervalMs: number = 60_000; // How often the check runs
   private isStopped: boolean = false;
   private monitorInterval: NodeJS.Timeout | null = null;
+  // Yagna may periodically fail to get/amend the allocation (if the external web3 rpc node is down, for example)
+  // We will retry the operation up to 10 times (so 10 minutes) before giving up and reporting the error
+  private consecutiveErrors: number = 0;
+  private readonly maxConsecutiveErrors: number =
+    Number(process.env.MAX_CONSECUTIVE_ALLOCATION_ERRORS) || 10; // Default to 10 errors
 
   constructor(
     private readonly sessionManager: GolemSessionManager,
@@ -86,12 +91,18 @@ export class BudgetMonitor {
           return;
         }
         const newAllocation = await this.checkAndAmendBudget(allocation);
+        this.consecutiveErrors = 0; // Reset on success
         if (onAllocationAmendSuccess) {
           onAllocationAmendSuccess(newAllocation);
         }
       } catch (error) {
-        if (onAllocationAmendError) {
+        this.consecutiveErrors++;
+        if (
+          this.consecutiveErrors > this.maxConsecutiveErrors &&
+          onAllocationAmendError
+        ) {
           onAllocationAmendError(error);
+          this.consecutiveErrors = 0; // Reset after reporting
         }
       }
     }, this.monitorIntervalMs);

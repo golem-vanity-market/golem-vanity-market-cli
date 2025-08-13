@@ -13,6 +13,7 @@ import {
 } from "@golem-sdk/golem-js/dist/payment";
 import { GolemServices } from "@golem-sdk/golem-js/dist/golem-network";
 import { PaymentModuleOptions } from "@golem-sdk/golem-js/dist/payment/payment.module";
+import { debitNotesTable, NewDebitNoteModel } from "../lib/db/schema";
 
 export class VanityPaymentModule extends PaymentModuleImpl {
   public static estimatorService: EstimatorService;
@@ -41,6 +42,22 @@ export class VanityPaymentModule extends PaymentModuleImpl {
           .error(`Invalid amount in debit note: ${debitNote.id}`);
         throw new Error(`Invalid amount in debit note: ${debitNote.id}`);
       }
+
+      if (
+        !VanityPaymentModule.estimatorService.checkIfProviderFailedToDoWork(
+          VanityPaymentModule.ctx,
+          debitNote.agreementId,
+          amountF,
+        )
+      ) {
+        VanityPaymentModule.ctx
+          .L()
+          .warn(
+            `EstimatorService terminated the agreement for debit note ${debitNote.id}`,
+          );
+        return debitNote;
+      }
+
       const resp = VanityPaymentModule.estimatorService.reportCosts(
         debitNote.agreementId,
         amountF,
@@ -52,10 +69,18 @@ export class VanityPaymentModule extends PaymentModuleImpl {
           .error(
             `Failed to report costs for debit note ${debitNote.id}: ${resp.reason}`,
           );
-        throw new Error(
-          `Failed to report costs for debit note ${debitNote.id}: ${resp.reason}`,
-        );
+        return debitNote;
       }
+      const newDebitNote: NewDebitNoteModel = {
+        agreementId: debitNote.agreementId,
+        debitNoteId: debitNote.id,
+        glmAmount: amountF,
+        status: resp.accepted ? "accepted" : "rejected",
+      };
+      await VanityPaymentModule.ctx
+        .getDB()
+        .insert(debitNotesTable)
+        .values(newDebitNote);
       return await super.acceptDebitNote(debitNote, allocation, amount);
     } catch (error) {
       VanityPaymentModule.ctx
@@ -78,6 +103,21 @@ export class VanityPaymentModule extends PaymentModuleImpl {
           .error(`Invalid amount in invoice: ${invoice.id}`);
         throw new Error(`Invalid amount in invoice: ${invoice.id}`);
       }
+      if (
+        VanityPaymentModule.estimatorService.checkIfProviderFailedToDoWork(
+          VanityPaymentModule.ctx,
+          invoice.agreementId,
+          amountF,
+        )
+      ) {
+        VanityPaymentModule.ctx
+          .L()
+          .warn(
+            `EstimatorService terminated the agreement for invoice ${invoice.id}`,
+          );
+        return invoice;
+      }
+
       const resp = VanityPaymentModule.estimatorService.reportCosts(
         invoice.agreementId,
         amountF,

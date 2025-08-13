@@ -1,6 +1,6 @@
-import { Estimator } from "../estimator/estimator";
+import type { Estimator } from "../estimator/estimator";
 import { displayDifficulty, displayTime } from "../utils/format";
-import { ProviderCurrentEstimate } from "../estimator_service";
+import type { ProviderCurrentEstimate } from "../estimator_service";
 
 function getFaceEmoji(
   luckFactor: number,

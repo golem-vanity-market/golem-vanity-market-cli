@@ -118,7 +118,7 @@ Use the following `openssl` commands to generate your keys. You can run these in
     openssl ec -in ec_private.pem -outform DER | tail -c +8 | head -c 32 | xxd -p -c 32 > my-key.private
     ```
 
-Your public key file (`my-key.public`) should contain a hex-encoded Ethereum public key, like this:
+Your public key file (`my-key.public`) should contain a hex-encoded secp256k1 public key (65 bytes, starting with 0x04), like this:
 `0x04d4a96d675423cc05f60409c48b084a53d3fa0ac59957939f526505c43f975b77fabab74decd66d80396308db9cb4db13b0c273811d51a1773d6d9e2dbcac1d28`
 
 ## 🛠️ Usage
@@ -129,8 +129,28 @@ After generating your `my-key.public` file, you can copy and paste the following
 
 To generate a vanity address with a specific prefix, run the following command:
 
+**Linux/macOS:**
+
 ```bash
 npm run start -- generate \
+  --public-key ./my-key.public \
+  --processing-unit cpu \
+  --vanity-address-prefix 0x1337 \
+  --budget-limit 10
+```
+
+**Windows:**
+
+```bash
+npm run start -- generate --public-key ./my-key.public --processing-unit cpu --vanity-address-prefix 0x1337 --budget-limit 10
+```
+
+#### Using the Development Version
+
+During development or testing, you can use the development version:
+
+```bash
+npm run dev -- generate \
   --public-key ./my-key.public \
   --processing-unit cpu \
   --vanity-address-prefix 0x1337 \
@@ -143,6 +163,8 @@ npm run start -- generate \
 
 For faster results, you can leverage GPU providers on the Golem Network.
 
+**Linux/macOS:**
+
 ```bash
 npm run start -- generate \
   --public-key ./my-key.public \
@@ -152,9 +174,17 @@ npm run start -- generate \
   --num-workers 3
 ```
 
+**Windows:**
+
+```bash
+npm run start -- generate --public-key ./my-key.public --vanity-address-prefix 0xbeef --processing-unit gpu --budget-limit 20 --num-workers 3
+```
+
 #### Generate Multiple Addresses and Export the Results
 
 Find multiple vanity addresses and save them to a JSON file.
+
+**Linux/macOS:**
 
 ```bash
 npm run start -- generate \
@@ -167,9 +197,17 @@ npm run start -- generate \
   --non-interactive
 ```
 
+**Windows:**
+
+```bash
+npm run start -- generate --public-key ./my-key.public --processing-unit gpu --vanity-address-prefix 0xcafe --num-results 5 --budget-limit 10 --results-file vanity-addresses.json --non-interactive
+```
+
 #### CPU-Only Generation with Custom Timing
 
 Customize the generation process for CPU-only workers with specific timing parameters for getting offers.
+
+**Linux/macOS:**
 
 ```bash
 npm run start -- generate \
@@ -180,6 +218,12 @@ npm run start -- generate \
   --min-offers 10 \
   --budget-limit 10 \
   --min-offers-timeout-sec 60
+```
+
+**Windows:**
+
+```bash
+npm run start -- generate --public-key ./my-key.public --vanity-address-prefix 0xdead --processing-unit cpu --single-pass-sec 30 --min-offers 10 --budget-limit 10 --min-offers-timeout-sec 60
 ```
 
 ## Command Reference
@@ -221,6 +265,10 @@ The cost of generating a vanity address in GLM tokens depends on several factors
 - **Provider Pricing**: The Golem Network is a marketplace, and provider prices can fluctuate.
 
 The tool provides real-time cost estimates and difficulty calculations before you commit to starting the generation process.
+
+### Pattern Generation Difficulty
+
+For detailed information about vanity address generation difficulty, time estimates, and hardware performance comparisons across different pattern lengths, see [PATTERN_GEN_DIFF.md](PATTERN_GEN_DIFF.md).
 
 ## Development
 
@@ -294,12 +342,21 @@ npm run list-gpu-offers
 
 You can configure the tool using the following environment variables:
 
-- `YAGNA_APPKEY`: Your Yagna application key.
-- `OTEL_EXPORTER_OTLP_ENDPOINT`: The endpoint for OpenTelemetry data.
-- `OTEL_LOG_LEVEL`: The logging level (e.g., `debug`, `info`, `warn`, `error`).
-- `RESULT_CSV_FILE`: A custom file path for the CSV output.
-- `MESSAGE_LOOP_SEC_INTERVAL`: The interval for status updates in seconds (default: `30`).
-- `PROCESS_LOOP_SEC_INTERVAL`: The interval for the main process loop in seconds (default: `1`).
+| Variable                            | Description                                            | Default Value                 |
+| ----------------------------------- | ------------------------------------------------------ | ----------------------------- |
+| `YAGNA_APPKEY`                      | Your Yagna application key (required)                  | (required)                    |
+| `OTEL_CONFIG_FILE`                  | Path to OpenTelemetry configuration file               | `monitoring/otel-config.yaml` |
+| `OTEL_LOG_LEVEL`                    | Logging level (`debug`, `info`, `warn`, `error`)       | `info`                        |
+| `MAX_CPU_ENV_PER_HOUR`              | Maximum price per hour for CPU environment (GLM)       | `0.1`                         |
+| `MAX_CPU_CPU_PER_HOUR`              | Maximum price per hour for CPU compute (GLM)           | `0.1`                         |
+| `MAX_GPU_ENV_PER_HOUR`              | Maximum price per hour for GPU environment (GLM)       | `2.0`                         |
+| `RESULT_CSV_FILE`                   | Custom file path for CSV output                        | `results-{current-date}.csv`  |
+| `MESSAGE_LOOP_SEC_INTERVAL`         | Interval for status updates in seconds                 | `30`                          |
+| `PROCESS_LOOP_SEC_INTERVAL`         | Interval for the main process loop in seconds          | `1`                           |
+| `COMMAND_EXECUTION_TIMEOUT_BUFFER`  | Extra time (ms) before aborting unresponsive commands  | `30000` (30s)                 |
+| `RENTAL_RELEASE_TIMEOUT`            | Timeout (ms) for releasing a rental                    | `30000` (30s)                 |
+| `RENTAL_DESTROY_TIMEOUT`            | Timeout (ms) for destroying a rental                   | `30000` (30s)                 |
+| `MAX_CONSECUTIVE_ALLOCATION_ERRORS` | Maximum consecutive allocation errors before giving up | `10`                          |
 
 ## Troubleshooting
 

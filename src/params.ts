@@ -1,4 +1,5 @@
 import { getBytes, hexlify } from "ethers";
+import { Problem } from "./lib/db/schema";
 
 /**
  * Interface for task generation parameters
@@ -6,6 +7,7 @@ import { getBytes, hexlify } from "ethers";
 export interface GenerationParams {
   publicKey: string;
   vanityAddressPrefix: GenerationPrefix;
+  problems: Problem[];
   budgetInitial: number;
   budgetTopUp: number;
   budgetLimit: number;

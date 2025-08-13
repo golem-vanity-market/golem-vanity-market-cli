@@ -1,6 +1,6 @@
 {
   "name": "@unoperate/golem-vaddr-cli",
-  "version": "0.1.6",
+  "version": "0.1.8",
   "description": "Vanity address generator CLI",
   "bin": {
     "golem-addr": "dist/index.js"
@@ -29,7 +29,8 @@
     "list-cpu-offers": "node forward.js golem-sdk market scan",
     "list-gpu-offers": "node forward.js golem-sdk market scan --engine vm-nvidia",
     "db:setup": "npx drizzle-kit generate && npx drizzle-kit migrate",
-    "db:clear": "rm -r drizzle/* db.sqlite "
+    "db:clear": "rm -r drizzle/* db.sqlite",
+    "db:studio": "npx drizzle-kit studio"
   },
   "keywords": [
     "vanity",
@@ -56,7 +57,7 @@
     "typescript-eslint": "^8.33.1"
   },
   "dependencies": {
-    "@golem-sdk/golem-js": "^3.5.1",
+    "@golem-sdk/golem-js": "^3.6.0",
     "@golem-sdk/pino-logger": "^1.1.0",
     "@libsql/client": "^0.15.9",
     "@opentelemetry/api": "^1.9.0",
@@ -74,7 +75,7 @@
     "cli-progress": "^3.12.0",
     "commander": "^11.0.0",
     "dotenv": "^16.5.0",
-    "drizzle-orm": "^0.44.2",
+    "drizzle-orm": "^0.44.4",
     "elliptic": "^6.6.1",
     "ethers": "^6.14.3",
     "js-sha3": "^0.9.3",

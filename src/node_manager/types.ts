@@ -1,44 +1,65 @@
-import { AppContext } from "../app_context";
-import { Agreement } from "@golem-sdk/golem-js";
-import { VanityResult } from "./result";
+import type { AppContext } from "../app_context";
+import type { Agreement } from "@golem-sdk/golem-js";
+import type { VanityResultMatchingProblem } from "./result";
+import { ProviderJobModel } from "../lib/db/schema";
 
+export interface Reputation {
+  isProviderBanned(providerId: string): boolean;
+  ban(ctx: AppContext, providerId: string, reason: string): boolean;
+}
 export interface GolemSessionRecorder {
+  agreementCreate(
+    ctx: AppContext,
+    jobId: string,
+    agreement: Agreement,
+  ): Promise<void>;
+
   // return providerJobID
-  agreementAcquired(
+  providerJobCreate(
     ctx: AppContext,
     jobId: string,
     agreement: Agreement,
   ): Promise<string>;
 
-  jobStarted(ctx: AppContext, jobProviderId: string): Promise<void>;
-  jobCompleted(ctx: AppContext, jobProviderId: string): Promise<void>;
-  jobStopped(ctx: AppContext, jobProviderId: string): Promise<void>;
-  jobFailed(
+  providerJobStarted(ctx: AppContext, providerJobId: string): Promise<void>;
+  providerJobCompleted(ctx: AppContext, providerJobId: string): Promise<void>;
+  addHashRate(
     ctx: AppContext,
-    jobProviderId: string,
+    providerJobId: string,
+    hashRate: number,
+  ): Promise<void>;
+  providerJobStopped(ctx: AppContext, providerJobId: string): Promise<void>;
+  providerJobFailed(
+    ctx: AppContext,
+    providerJobId: string,
     error: string,
   ): Promise<void>;
-  resultFailedParsing(ctx: AppContext, jobProviderId: string): Promise<void>;
-  resultInvalidVanityKey(ctx: AppContext, jobProviderId: string): Promise<void>;
+  resultFailedParsing(ctx: AppContext, providerJobId: string): Promise<void>;
+  resultInvalidVanityKey(ctx: AppContext, providerJobId: string): Promise<void>;
 
   proofsStore(
     ctx: AppContext,
     jobId: string,
-    results: VanityResult[],
+    results: VanityResultMatchingProblem[],
   ): Promise<void>;
+
+  getProviderJob(
+    ctx: AppContext,
+    providerJobId: string,
+  ): Promise<ProviderJobModel[]>;
 }
 
-export function withJobProviderID(
+export function withProviderJobID(
   ctx: AppContext,
-  jobProviderId: string,
+  providerJobId: string,
 ): AppContext {
-  return ctx.withValue("provider_job_id", jobProviderId);
+  return ctx.withValue("provider_job_id", providerJobId);
 }
 
-export function getJobProviderID(ctx: AppContext): string {
-  const jobProviderId = ctx.getValue<string>("provider_job_id");
-  if (typeof jobProviderId !== "string" || jobProviderId.length === 0) {
+export function getProviderJobId(ctx: AppContext): string {
+  const providerJobId = ctx.getValue<string>("provider_job_id");
+  if (typeof providerJobId !== "string" || providerJobId.length === 0) {
     throw new Error("Job Provider ID not found in AppContext");
   }
-  return jobProviderId;
+  return providerJobId;
 }

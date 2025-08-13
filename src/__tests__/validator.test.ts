@@ -65,8 +65,8 @@ describe("VanityResult Validator", () => {
           address: entry.addr,
           salt: entry.salt,
           pubKey: entry.pubKey,
-          pattern: entry.pattern,
-          estimatedComplexity: 1000000, // Placeholder value
+          problem: null,
+          workDone: 0,
         };
 
         const validationResult = validateVanityResult(ctx, result);
@@ -85,8 +85,8 @@ describe("VanityResult Validator", () => {
           address: testCase.addr,
           salt: testCase.salt,
           pubKey: testCase.pubKey,
-          pattern: testCase.pattern,
-          estimatedComplexity: 1000000,
+          problem: null,
+          workDone: 0,
         };
         console.log(`Testing: ${testName}`);
         const validationResult = validateVanityResult(ctx, result);

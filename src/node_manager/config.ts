@@ -4,7 +4,9 @@
 
 import { GenerationParams, ProcessingUnitType } from "../params";
 import { ExeUnit, Allocation, MarketOrderSpec } from "@golem-sdk/golem-js";
-import { selectBestProvider } from "./selector";
+import { filterProposal, selectBestProvider } from "./selector";
+import { Reputation } from "./types";
+import { AppContext } from "../app_context";
 
 /**
  * Configuration for a specific processing unit type
@@ -84,8 +86,10 @@ export abstract class BaseRentalConfig {
    * Get the Golem order configuration for this processing unit type
    */
   public getOrder(
+    ctx: AppContext,
     rentalDurationSeconds: number,
     allocation: Allocation,
+    reputation: Reputation,
   ): MarketOrderSpec {
     const rentalDurationHours = Math.ceil(rentalDurationSeconds / 3600);
 
@@ -98,14 +102,16 @@ export abstract class BaseRentalConfig {
         },
       },
       market: {
-        rentHours: rentalDurationHours,
+        // 1 year is a safe default, expiration time is mandatory but we don't want the rental to expire on it's own
+        rentHours: 24 * 365,
         pricing: {
           model: "linear",
           maxStartPrice: 0.0,
           maxCpuPerHourPrice: this._config.maxCpuPerHourPrice ?? 0.0,
           maxEnvPerHourPrice: this._config.maxEnvPricePerHour,
         },
-        offerProposalSelector: selectBestProvider(rentalDurationHours),
+        offerProposalFilter: filterProposal(ctx, reputation),
+        offerProposalSelector: selectBestProvider(ctx, rentalDurationHours),
       },
       payment: {
         allocation,
@@ -179,7 +185,7 @@ export class CPURentalConfig extends BaseRentalConfig {
     const prefix = params.vanityAddressPrefix.toArg();
 
     // Create multiple prefix instances for parallel processing
-    const prefixes = ` "no_default=1;prefix=${prefix}"`.repeat(cpuCount);
+    const prefixes = ` "prefix=${prefix}"`.repeat(cpuCount);
 
     const commandParts = [
       "parallel",
@@ -243,7 +249,7 @@ export class GPURentalConfig extends BaseRentalConfig {
       "-r",
       this.config.roundCount.toString(),
       "-p",
-      `"no_default=1;prefix=${prefix}"`,
+      `"prefix=${prefix}"`,
       "-b",
       params.singlePassSeconds.toString(),
       "-z",
