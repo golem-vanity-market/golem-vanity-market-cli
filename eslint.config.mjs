@@ -1,24 +1,55 @@
-// @ts-check
-
-import eslint from "@eslint/js";
 import tseslint from "typescript-eslint";
 
-/** @type {import("eslint").Linter.FlatConfig[]} */
-export default [
+export default tseslint.config(
   {
-    ignores: ["dist/**", "node_modules/**", "forward.js"],
+    ignores: ["dist/", "node_modules/", ".env"],
   },
-  ...tseslint.config(eslint.configs.recommended, tseslint.configs.recommended, {
+  {
+    files: ["src/**/*.ts"],
+    extends: [...tseslint.configs.recommendedTypeChecked],
+    languageOptions: {
+      parserOptions: {
+        project: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
     rules: {
       "no-unused-vars": "off",
       "@typescript-eslint/no-unused-vars": [
-        "error",
+        "warn",
         {
           argsIgnorePattern: "^_",
           varsIgnorePattern: "^_",
           caughtErrorsIgnorePattern: "^_",
         },
       ],
+      "@typescript-eslint/explicit-function-return-type": "off",
+      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/consistent-type-imports": "off",
+      "prefer-const": "error",
+      "no-var": "error",
+      "@typescript-eslint/require-await": "off",
+      "@typescript-eslint/no-misused-promises": "off",
+      "@typescript-eslint/no-floating-promises": "off",
+      "pescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/restrict-template-expressions": "off",
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "pescript-eslint/no-base-to-string": "off",
+      "@typescript-eslint/no-base-to-string": "off",
+      "@typescript-eslint/no-for-in-array": "off",
+      "@typescript-eslint/no-unsafe-argument": "off",
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/no-unsafe-call": "off",
+      "@typescript-eslint/unbound-method": "off",
+      "@typescript-eslint/ban-ts-comment": "off",
     },
-  }),
-];
+  },
+
+  // Specific override for test files
+  {
+    files: ["**/*.test.ts"],
+    rules: {
+      "@typescript-eslint/no-explicit-any": "off",
+    },
+  },
+);

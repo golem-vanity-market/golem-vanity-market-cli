@@ -44,7 +44,7 @@ export class VanityPaymentModule extends PaymentModuleImpl {
       }
 
       if (
-        !VanityPaymentModule.estimatorService.checkIfProviderFailedToDoWork(
+        VanityPaymentModule.estimatorService.checkIfProviderFailedToDoWork(
           VanityPaymentModule.ctx,
           debitNote.agreementId,
           amountF,
@@ -130,6 +130,7 @@ export class VanityPaymentModule extends PaymentModuleImpl {
           );
         return invoice;
       }
+
       return await super.acceptInvoice(invoice, allocation, amount);
     } catch (err) {
       VanityPaymentModule.ctx

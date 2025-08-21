@@ -24,10 +24,14 @@ export type DebitNoteStatus = (typeof debitNoteStatusNames)[number];
 
 export type Problem =
   | {
-      type: Exclude<GeneratedAddressCategory, "user-prefix">;
+      type: Exclude<GeneratedAddressCategory, "user-prefix" | "user-suffix">;
     }
   | {
       type: "user-prefix";
+      specifier: string;
+    }
+  | {
+      type: "user-suffix";
       specifier: string;
     };
 

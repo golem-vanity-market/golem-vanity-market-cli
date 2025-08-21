@@ -3,7 +3,6 @@ import type { AppContext } from "../app_context";
 import type { Reputation } from "./types";
 
 export const proposalPool = new Map<string, OfferProposal>();
-export const scriptStartTime = Date.now();
 
 function getDemandExpirationDate(proposal: OfferProposal): Date | null {
   const demandExpirationProperty =
@@ -40,24 +39,25 @@ export function getProposalPoolJson() {
 }
 
 export const filterProposal =
-  (ctx: AppContext, bannedProviders: Reputation) =>
-  (proposal: OfferProposal) => {
+  (ctx: AppContext, rep: Reputation) => (proposal: OfferProposal) => {
     if (proposal.id == "golem") {
       return true;
     }
     const MINIMUM_CPU_CORES = parseInt(process.env.MINIMUM_CPU_CORES || "1");
-    if (proposal.properties["golem.inf.cpu.threads"] < MINIMUM_CPU_CORES) {
-      /*ctx.info(
-      "Proposal has less than 32 CPU threads, skipping: ",
-      proposal.id,
-    );*/
+    const threadCount = proposal.properties["golem.inf.cpu.threads"];
+    if (threadCount < MINIMUM_CPU_CORES) {
+      ctx
+        .L()
+        .debug(
+          `Proposal ${proposal.id} has insufficient CPU cores: ${threadCount} < ${MINIMUM_CPU_CORES}`,
+        );
       return false;
     }
-    if (bannedProviders.isProviderBanned(proposal.provider.id)) {
-      ctx.consoleInfo("Skipping banned provider: ", proposal.provider.id);
+
+    if (rep.isProviderBanned(proposal.provider.id)) {
+      ctx.L().info("Skipping banned provider: ", proposal.provider.id);
       return false;
     }
-    //ctx.info("Proposal has enough cores (32 or more) CPU");
 
     proposalPool.set(proposal.provider.id, proposal);
     // If the proposal is not from Golem, we can filter it out
@@ -78,6 +78,9 @@ export const selectBestProvider =
         bestProposal = proposal;
       }
     }
-    ctx.consoleInfo("Best proposal selected:", bestProposal.id);
+    const providerId = bestProposal.provider?.id ?? "N/A";
+    ctx.info(
+      `Selected proposal ${bestProposal.id} from provider ${providerId} with cost ${bestProposal.getEstimatedCost(estimatedRentHours)}`,
+    );
     return bestProposal;
   };

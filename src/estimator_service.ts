@@ -1,15 +1,15 @@
 import { Estimator } from "./estimator/estimator";
-import { GenerationPrefix } from "./params";
 import { AppContext } from "./app_context";
 import { ProofEntryResult } from "./estimator/proof";
 import { ResultsService } from "./results_service";
 import { EstimatorInfo } from "./estimator/estimator";
+import { Problem } from "./lib/db/schema";
 
 export interface EstimatorServiceOptions {
   disableMessageLoop?: boolean;
   messageLoopSecs?: number;
   processLoopSecs: number;
-  vanityPrefix: GenerationPrefix; // Optional vanity prefix
+  problems: Problem[];
   resultService: ResultsService;
 }
 
@@ -29,12 +29,19 @@ export interface EstimatorDynamicParams {
   minimumAcceptedEfficiency: number;
 }
 
-export let uploaderJobId: string;
+export interface EstimatorSimpleInfo {
+  jobId: string;
+  currentInfo: EstimatorInfo;
+  currentCost: number;
+  rental: {
+    provider: string;
+    agreementId: string;
+    status: string;
+  } | null;
+}
 
 export class EstimatorService {
   private proofQueue: Map<string, ProofEntryResult[]> = new Map();
-
-  private savedProofs: Map<string, null> = new Map();
 
   private estimators: Map<string, Estimator> = new Map();
   private costs: Map<string, number> = new Map();
@@ -62,13 +69,14 @@ export class EstimatorService {
     this.dynamicParams = structuredClone(params);
   }
 
-  public allEstimatorsInfo(): object {
-    const estimatorArray = [];
+  public allEstimatorsInfo() {
+    const estimatorArray: EstimatorSimpleInfo[] = [];
     for (const [jobId, estimator] of this.estimators.entries()) {
       estimatorArray.push({
         jobId: jobId,
         currentInfo: estimator.currentInfo(),
         currentCost: estimator.currentCost,
+        rental: null,
       });
     }
     return {
@@ -155,22 +163,24 @@ export class EstimatorService {
 
     let totalWorkThisRun = 0;
     for (const entry of proofQueue) {
-      const isUserPattern = entry.addr
-        .toLowerCase()
-        .startsWith(this.options.vanityPrefix.fullPrefix().toLowerCase());
+      const prefixProblem = this.options.problems.find(
+        (p) => p.type === "user-prefix",
+      );
+      const suffixProblem = this.options.problems.find(
+        (p) => p.type === "user-suffix",
+      );
+      const isUserPattern = prefixProblem
+        ? entry.addr
+            .toLowerCase()
+            .startsWith(prefixProblem.specifier.toLowerCase())
+        : suffixProblem
+          ? entry.addr
+              .toLowerCase()
+              .endsWith(suffixProblem.specifier.toLowerCase())
+          : false;
       this.totalEstimator?.addProvedWork(entry.workDone, isUserPattern);
       estimator.addProvedWork(entry.workDone, isUserPattern);
       totalWorkThisRun += entry.workDone;
-
-      if (this.savedProofs.has(entry.addr.toLowerCase())) {
-        this.ctx
-          .L()
-          .warn(
-            `Duplicate proof entry found for address: ${entry.addr.toLowerCase()}`,
-          );
-        continue; // Skip duplicate entries
-      }
-      this.savedProofs.set(entry.addr.toLowerCase(), null);
     }
     if (proofQueue.length > 0) {
       this.ctx.info(
@@ -200,10 +210,6 @@ export class EstimatorService {
     ); // 5 minutes in seconds
     const estimator = this.estimators.get(jobId);
     if (estimator) {
-      if (estimator.stopping) {
-        this.ctx.L().info(`Estimator for job ${jobId} is stopping.`);
-        return true;
-      }
       const info = estimator.currentInfo();
 
       let speedEstimation;
@@ -223,7 +229,6 @@ export class EstimatorService {
           (speedEstimation.efficiency < efficiencyLowerThreshold ||
             speedEstimation.speed < speedLowerThreshold)
         ) {
-          estimator.stopping = true;
           return true;
         }
       }

@@ -16,7 +16,10 @@ import {
   CPURentalConfig,
   GPURentalConfig,
 } from "./config";
-import { computePrefixDifficulty } from "../difficulty";
+import {
+  computePrefixDifficulty,
+  computeSuffixDifficulty,
+} from "../difficulty";
 import type { EstimatorService } from "../estimator_service";
 import type { ResultsService } from "../results_service";
 import { VanityPaymentModule } from "./payment_module";
@@ -25,15 +28,11 @@ import {
   type IterationInfo,
   type ParsedResults,
   type CommandResult,
-  type VanityResult,
   VanityResultMatchingProblem,
 } from "./result";
 import { ProofEntryResult } from "../estimator/proof";
 import { displayDifficulty } from "../utils/format";
-import {
-  validateAddressMatchPattern,
-  validateVanityResult,
-} from "../validator";
+import { validateVanityResult } from "../validator";
 
 import {
   type GolemSessionRecorder,
@@ -42,6 +41,7 @@ import {
   withProviderJobID,
 } from "./types";
 import { ProviderJobModel } from "../lib/db/schema";
+import { JobUploaderService } from "./job_uploader";
 
 /**
  * Parameters for the GolemSessionManager constructor
@@ -77,12 +77,17 @@ export class GolemSessionManager {
   private allocation?: Allocation;
   private rentalPool?: ResourceRentalPool;
   private estimatorService: EstimatorService;
+  private jobUploaderService: JobUploaderService | null;
   private reputation: Reputation;
   private resultService: ResultsService;
   private stopWorkAC: AbortController = new AbortController();
   private dbRecorder: GolemSessionRecorder;
 
-  constructor(params: SessionManagerParams, recorder: GolemSessionRecorder) {
+  constructor(
+    params: SessionManagerParams,
+    recorder: GolemSessionRecorder,
+    jobUploader: JobUploaderService | null,
+  ) {
     this.rentalDurationSeconds = params.rentalDurationSeconds;
     this.budgetInitial = params.budgetInitial;
     this.processingUnitType = params.processingUnitType;
@@ -90,10 +95,11 @@ export class GolemSessionManager {
     this.reputation = params.reputation;
     this.resultService = params.resultService;
     this.dbRecorder = recorder;
+    this.jobUploaderService = jobUploader;
   }
 
-  public saveResultsToFile(filePath: string): void {
-    this.resultService.saveResultsToFile(filePath);
+  public async saveResultsToFile(filePath: string): Promise<void> {
+    await this.resultService.saveResultsToFile(filePath);
   }
 
   public get noResults(): number {
@@ -158,14 +164,12 @@ export class GolemSessionManager {
     return this.processingUnitType;
   }
 
-  public getConfigBasedOnProcessingUnitType(
-    cruncherVersion?: string,
-  ): BaseRentalConfig {
+  public getConfigBasedOnProcessingUnitType(): BaseRentalConfig {
     switch (this.processingUnitType) {
       case ProcessingUnitType.CPU:
-        return new CPURentalConfig(cruncherVersion);
+        return new CPURentalConfig();
       case ProcessingUnitType.GPU:
-        return new GPURentalConfig(cruncherVersion);
+        return new GPURentalConfig();
       default:
         throw new Error(
           `Unsupported processing unit type: ${this.processingUnitType}`,
@@ -348,7 +352,9 @@ export class GolemSessionManager {
       const commandExecutionSec = generationParams.singlePassSeconds;
       const timeoutBufferSec =
         Number(process.env.COMMAND_EXECUTION_TIMEOUT_BUFFER) || 30_000; // buffer for command execution timeout
-      const res = await exe.run(command, {
+      //FIXME: sleep 1 as a workaround for yagna stdout truncate issue, remove when resolved
+      // https://github.com/golemfactory/yagna/issues/3450
+      const res = await exe.run(`${command} && sleep 1`, {
         signalOrTimeout: anyAbortSignal(
           this.stopWorkAC.signal,
           AbortSignal.timeout(commandExecutionSec * 1000 + timeoutBufferSec), // timeout = expected time to execute command + buffer
@@ -399,7 +405,9 @@ export class GolemSessionManager {
         providerType: this.processingUnitType,
       };
 
-      if (cmdResult.failedLines.length > 0) {
+      /*
+      // we cannot be sure that all lines will be parsed correctly
+      if (cmdResult.failedLines.length > 1) {
         //TODO reputation
         // push proofs to table
         // if some failed to parse, set offense to nonsense
@@ -408,6 +416,8 @@ export class GolemSessionManager {
         ctx.error(`failed to parse lines: ${cmdResult.failedLines}`);
         throw new Error("Failed to parse result lines");
       }
+
+       */
 
       if (cmdResult.results.length === 0) {
         // TODO: inform estimator and reputation model
@@ -453,7 +463,7 @@ export class GolemSessionManager {
     return rentalPool.getProposalPool().getAvailable();
   }
 
-  public getRentalStatus(): object {
+  public getRentalStatus() {
     const rentalPool = this.rentalPool;
     if (!rentalPool) {
       return {};
@@ -544,6 +554,7 @@ export class GolemSessionManager {
 
     try {
       await this.initEstimatorForRental(rental, generationParams);
+      await this.initJobUploaderForRental(rental);
 
       ctx.info(`Running command on provider: ${providerName}`);
       cmdResult = await this.runCommand(ctx, rental, generationParams);
@@ -556,6 +567,13 @@ export class GolemSessionManager {
       ctx.info(`Processing results completed`);
 
       await this.estimatorService.process(rental.agreement.id);
+
+      //don't have to await this, it can be processed in the background
+      this.jobUploaderService?.process(rental.agreement.id).catch((error) => {
+        ctx.error(
+          `Error during job uploader processing for agreement ${rental.agreement.id}: ${error}`,
+        );
+      });
 
       await this.storeHashRate(ctx, providerJobId, rental.agreement.id);
 
@@ -595,8 +613,11 @@ export class GolemSessionManager {
         ctx.consoleInfo(
           `💔 Provider ${providerName} did not run the command successfully, destroying the rental`,
         );
-        //@todo: add to ban
-        //bannedProviders.add(rental.agreement.provider.id);
+        this.reputation.ban(
+          ctx,
+          rental.agreement.provider.id,
+          "failed to run command",
+        );
         await this.rentalPool.destroy(
           rental,
           AbortSignal.timeout(
@@ -655,8 +676,22 @@ export class GolemSessionManager {
       rental.agreement.provider.id,
       rental.agreement.provider.walletAddress,
       computePrefixDifficulty(
-        generationParams.vanityAddressPrefix.fullPrefix(),
-      ),
+        generationParams.problems.find((p) => p.type === "user-prefix")
+          ?.specifier || "",
+      ) +
+        computeSuffixDifficulty(
+          generationParams.problems.find((p) => p.type === "user-suffix")
+            ?.specifier || "",
+        ),
+    );
+  }
+
+  private async initJobUploaderForRental(rental: ResourceRental) {
+    await this.jobUploaderService?.initJobIfNotInitialized(
+      rental.agreement.id,
+      rental.agreement.provider.name,
+      rental.agreement.provider.id,
+      rental.agreement.provider.walletAddress,
     );
   }
 
@@ -685,7 +720,7 @@ export class GolemSessionManager {
         workDone: result.workDone,
       };
 
-      const isValid = await validateVanityResult(ctx, result);
+      const isValid = validateVanityResult(ctx, result);
 
       if (!isValid.isValid) {
         await this.dbRecorder.resultInvalidVanityKey(
@@ -708,13 +743,10 @@ export class GolemSessionManager {
           result as VanityResultMatchingProblem,
         ]);
         this.estimatorService.pushProofToQueue(entry);
+        this.jobUploaderService?.pushProofToQueue(entry);
       }
 
-      const isUserPrefix = validateAddressMatchPattern(
-        result.address,
-        generationParams.vanityAddressPrefix.fullPrefix(),
-      );
-      if (isUserPrefix) {
+      if (this.isRequestedPattern(entry.addr, generationParams)) {
         this.resultService.processValidatedEntry(
           entry,
           (jobId: string, address: string, addrDifficulty: number) => {
@@ -729,11 +761,19 @@ export class GolemSessionManager {
   }
 
   public isRequestedPattern(
-    result: VanityResult,
+    address: string,
     generationParams: GenerationParams,
   ): boolean {
-    const pattern = generationParams.vanityAddressPrefix.fullPrefix();
-    if (result.address.startsWith(pattern)) {
+    const prefixProblem = generationParams.problems.find(
+      (p) => p.type === "user-prefix",
+    );
+    const suffixProblem = generationParams.problems.find(
+      (p) => p.type === "user-suffix",
+    );
+    if (prefixProblem && address.startsWith(prefixProblem.specifier)) {
+      return true;
+    }
+    if (suffixProblem && address.endsWith(suffixProblem.specifier)) {
       return true;
     }
     return false;

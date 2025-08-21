@@ -110,7 +110,7 @@ describe("Vanity Address Generator CLI - Step 2", () => {
     it("should validate budget-limit is a positive number", () => {
       try {
         execSync(
-          `node ${cliPath} generate --public-key ${validPublicKeyPath} --vanity-address-prefix test --budget-limit -50`,
+          `node ${cliPath} generate --public-key ${validPublicKeyPath} --vanity-address-prefix 0x1234 --budget-limit -50`,
           { encoding: "utf8" },
         );
         fail("Should have thrown an error for negative budget");
@@ -245,7 +245,7 @@ describe("Unit Tests for Generate Command Functions", () => {
       );
     });
 
-    it("should throw error for missing vanity address prefix", () => {
+    it("should throw error for missing vanity address prefix and suffix", () => {
       const invalidOptions = {
         nonInteractive: true,
         numResults: 1n,
@@ -261,11 +261,11 @@ describe("Unit Tests for Generate Command Functions", () => {
       };
 
       expect(() => validateGenerateOptions(invalidOptions)).toThrow(
-        "Vanity address prefix is required",
+        "At least one of vanity address prefix or suffix is required: vanityAddressPrefix/vanityAddressSuffix",
       );
     });
 
-    it("should throw error for empty vanity address prefix", () => {
+    it("should throw error for empty vanity address prefix and suffix", () => {
       const invalidOptions = {
         nonInteractive: true,
         numResults: 1n,
@@ -273,6 +273,7 @@ describe("Unit Tests for Generate Command Functions", () => {
         publicKey:
           "0x04d4a96d675423cc05f60409c48b084a53d3fa0ac59957939f526505c43f975b77fabab74decd66d80396308db9cb4db13b0c273811d51a1773d6d9e2dbcac1d28",
         vanityAddressPrefix: "",
+        vanityAddressSuffix: "",
         budgetInitial: 1,
         budgetTopUp: 1,
         budgetLimit: 100,
@@ -282,7 +283,7 @@ describe("Unit Tests for Generate Command Functions", () => {
       };
 
       expect(() => validateGenerateOptions(invalidOptions)).toThrow(
-        "Vanity address prefix cannot be empty",
+        "At least one of vanity address prefix or suffix is required: vanityAddressPrefix/vanityAddressSuffix",
       );
     });
 

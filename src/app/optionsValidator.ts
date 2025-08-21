@@ -1,7 +1,11 @@
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { ethers, hexlify } from "ethers";
-import { GenerationPrefix, ProcessingUnitType } from "../params";
+import {
+  GenerationSuffix,
+  GenerationPrefix,
+  ProcessingUnitType,
+} from "../params";
 
 /**
  * Custom error class for address generation validation errors
@@ -23,6 +27,7 @@ interface GenerateCmdOptions {
   publicKey?: string; // The actual public key content
   publicKeyPath?: string; // Path to the public key file
   vanityAddressPrefix?: string;
+  vanityAddressSuffix?: string;
   prefix?: string;
   resultsFile?: string; // Path to save results
   processingUnit?: string; // Processing unit type ('cpu' or 'gpu')
@@ -46,7 +51,8 @@ interface GenerateOptionsValidated {
   budgetInitial: number;
   budgetTopUp: number;
   budgetLimit: number;
-  vanityAddressPrefix: GenerationPrefix;
+  vanityAddressPrefix: GenerationPrefix | null;
+  vanityAddressSuffix: GenerationSuffix | null;
   processingUnitType: ProcessingUnitType;
 }
 
@@ -54,7 +60,7 @@ interface GenerateOptionsValidated {
  * Maximum allowed vanity prefix length for security and performance
  */
 const MAX_VANITY_PREFIX_LENGTH = 16;
-
+const MAX_VANITY_SUFFIX_LENGTH = 16;
 /**
  * Maximum budget to prevent excessive resource usage
  */
@@ -171,7 +177,7 @@ export function validateProcessingUnit(
 
 /**
  * Validates generate command options with comprehensive error checking
- * @param options - The options object containing publicKey, vanityAddressPrefix, budgetGlm, and processingUnitType
+ * @param options - The options object containing publicKey, vanityAddressPrefix, vanityAddressSuffix, budgetGlm, and processingUnitType
  * @throws {GenerateCmdOptValidationError} When validation fails
  */
 function validateGenerateOptions(
@@ -187,32 +193,59 @@ function validateGenerateOptions(
 
   const publicKey = new PublicKey(options.publicKey);
 
-  // Validate vanity address prefix presence and constraints
-  if (
-    options.vanityAddressPrefix === undefined ||
-    options.vanityAddressPrefix === null
-  ) {
+  // Require at least one of prefix or suffix to be present and valid
+  const validPrefix =
+    options.vanityAddressPrefix !== undefined &&
+    options.vanityAddressPrefix !== null &&
+    options.vanityAddressPrefix.length > 0 &&
+    options.vanityAddressPrefix;
+  const validSuffix =
+    options.vanityAddressSuffix !== undefined &&
+    options.vanityAddressSuffix !== null &&
+    options.vanityAddressSuffix.length > 0 &&
+    options.vanityAddressSuffix;
+
+  if (!validPrefix && !validSuffix) {
     throw new GenerateCmdOptValidationError(
-      "Vanity address prefix is required",
-      "vanityAddressPrefix",
+      "At least one of vanity address prefix or suffix is required",
+      "vanityAddressPrefix/vanityAddressSuffix",
     );
   }
 
-  if (options.vanityAddressPrefix.length === 0) {
-    throw new GenerateCmdOptValidationError(
-      "Vanity address prefix cannot be empty",
-      "vanityAddressPrefix",
-    );
+  if (validPrefix) {
+    if (!validPrefix.startsWith("0x")) {
+      throw new GenerateCmdOptValidationError(
+        "Vanity address prefix must start with '0x'",
+        "vanityAddressPrefix",
+      );
+    }
+    if (!/^[0-9a-f]*$/.test(validPrefix.replace("0x", ""))) {
+      throw new GenerateCmdOptValidationError(
+        "Vanity address prefix must only contain hexadecimal characters",
+        "vanityAddressPrefix",
+      );
+    }
+    if (validPrefix.replace("0x", "").length > MAX_VANITY_PREFIX_LENGTH) {
+      throw new GenerateCmdOptValidationError(
+        `Vanity address prefix too long. Maximum length is ${MAX_VANITY_PREFIX_LENGTH} characters`,
+        "vanityAddressPrefix",
+      );
+    }
   }
 
-  if (
-    options.vanityAddressPrefix.replace("0x", "").length >
-    MAX_VANITY_PREFIX_LENGTH
-  ) {
-    throw new GenerateCmdOptValidationError(
-      `Vanity address prefix too long. Maximum length is ${MAX_VANITY_PREFIX_LENGTH} characters`,
-      "vanityAddressPrefix",
-    );
+  if (validSuffix) {
+    if (!/^[0-9a-f]*$/.test(validSuffix)) {
+      throw new GenerateCmdOptValidationError(
+        "Vanity address suffix must only contain hexadecimal characters",
+        "vanityAddressSuffix",
+      );
+    }
+    if (validSuffix.length > MAX_VANITY_SUFFIX_LENGTH) {
+      throw new GenerateCmdOptValidationError(
+        `Vanity address suffix too long. Maximum length is ${MAX_VANITY_SUFFIX_LENGTH} characters`,
+        "vanityAddressSuffix",
+      );
+    }
   }
 
   // Validate budget constraints
@@ -268,7 +301,8 @@ function validateGenerateOptions(
 
   return {
     publicKey: publicKey,
-    vanityAddressPrefix: new GenerationPrefix(options.vanityAddressPrefix),
+    vanityAddressPrefix: validPrefix ? new GenerationPrefix(validPrefix) : null,
+    vanityAddressSuffix: validSuffix ? new GenerationSuffix(validSuffix) : null,
     budgetInitial: parsedBudgetInitial,
     budgetTopUp: parsedBudgetTopUp,
     budgetLimit: parsedBudgetLimit,

@@ -11,6 +11,7 @@ import { Problem } from "../lib/db/schema";
 
 export type GeneratedAddressCategory =
   | "user-prefix" // The address starts with the user-defined prefix.
+  | "user-suffix" // The address ends with the user-defined suffix.
   | "leading-any" // The number of leading characters that are the same.
   | "trailing-any" // The number of trailing characters that are the same.
   | "letters-heavy" // Addresses with a high number of letters (a-f).
@@ -23,6 +24,7 @@ type ProofThresholds = {
 
 export const CPU_PROOF_THRESHOLDS: ProofThresholds = {
   "user-prefix": 6, // At least 6 characters matching user provided pattern
+  "user-suffix": 6, // At least 6 characters matching user provided pattern
   "leading-any": 6, // At least 6 leading identical characters
   "trailing-any": 6, // At least 6 trailing identical characters
   "letters-heavy": 32, // At least 32 letters (a-f)
@@ -32,10 +34,11 @@ export const CPU_PROOF_THRESHOLDS: ProofThresholds = {
 
 export const GPU_PROOF_THRESHOLDS: ProofThresholds = {
   "user-prefix": 8, // At least 8 characters matching user provided pattern
+  "user-suffix": 8, // At least 8 characters matching user provided pattern
   "leading-any": 8, // At least 8 leading identical characters
   "trailing-any": 8, // At least 8 trailing identical characters
   "letters-heavy": 35, // At least 35 letters (a-f)
-  "numbers-heavy": 35, // At least 35 numbers (0-9)
+  "numbers-heavy": 40, // At least 35 numbers (0-9)
   "snake-score-no-case": 15, // At least 15 pairs of adjacent identical characters
 };
 
@@ -126,10 +129,34 @@ function calculateUserPrefix(
   return { category: "user-prefix", score, difficulty };
 }
 
+export function calculateUserSuffix(
+  addressStr: string,
+  userPattern: string,
+): AddressSinglePatternScore {
+  const patternLength = userPattern.length;
+  const userPatternFixed = userPattern.toLowerCase();
+  // score == how many ending chars match
+  let score = 0;
+  for (let i = 0; i < patternLength; i++) {
+    if (
+      addressStr[addressStr.length - 1 - i] ===
+      userPatternFixed[patternLength - 1 - i]
+    ) {
+      score++;
+    } else {
+      break;
+    }
+  }
+  const difficulty = Math.pow(16, score);
+  return { category: "user-suffix", score, difficulty };
+}
+
 export function scoreProblem(address: string, problem: Problem) {
   switch (problem.type) {
     case "user-prefix":
       return calculateUserPrefix(address, problem.specifier);
+    case "user-suffix":
+      return calculateUserSuffix(address, problem.specifier);
     case "leading-any":
       return calculateLeadingAny(address);
     case "trailing-any":
@@ -170,6 +197,12 @@ export function calculateProbabilitySpace(
 ): bigint {
   switch (category) {
     case "user-prefix": {
+      // The number of addresses with at least `threshold` characters matching the user-defined pattern.
+      if (threshold > 40 || threshold < 1) return 0n;
+      return 16n ** BigInt(40 - threshold);
+    }
+
+    case "user-suffix": {
       // The number of addresses with at least `threshold` characters matching the user-defined pattern.
       if (threshold > 40 || threshold < 1) return 0n;
       return 16n ** BigInt(40 - threshold);
@@ -252,12 +285,9 @@ export function checkAddressProof(
 
   const workPerProof = calculateWorkUnitForProblems(problems, thresholds);
 
-  const userPrefixProblem = problems.find(
-    (p): p is Extract<Problem, { type: "user-prefix" }> =>
-      p.type === "user-prefix",
-  );
+  const userPrefixProblem = problems.find((p) => p.type === "user-prefix");
 
-  // If one of the problems was a user-prefix, first check if we got it perfectly
+  // If one of the problems was a user-prefix/suffix, first check if we got it perfectly
   if (
     userPrefixProblem &&
     address
@@ -267,6 +297,18 @@ export function checkAddressProof(
     return {
       workDone: workPerProof,
       passedProblem: userPrefixProblem,
+    };
+  }
+  const userSuffixProblem = problems.find((p) => p.type === "user-suffix");
+  if (
+    userSuffixProblem &&
+    address
+      .toLocaleLowerCase()
+      .endsWith(userSuffixProblem.specifier.toLowerCase())
+  ) {
+    return {
+      workDone: workPerProof,
+      passedProblem: userSuffixProblem,
     };
   }
 

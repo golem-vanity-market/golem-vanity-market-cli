@@ -6,7 +6,8 @@ import { Problem } from "./lib/db/schema";
  */
 export interface GenerationParams {
   publicKey: string;
-  vanityAddressPrefix: GenerationPrefix;
+  vanityAddressPrefix: GenerationPrefix | null;
+  vanityAddressSuffix: GenerationSuffix | null;
   problems: Problem[];
   budgetInitial: number;
   budgetTopUp: number;
@@ -34,6 +35,33 @@ export class GenerationPrefix {
   }
 
   fullPrefix(): string {
+    return this.original;
+  }
+
+  toHex(): string {
+    return hexlify(this.val);
+  }
+
+  toArg(): string {
+    return BigInt(hexlify(this.val.slice().reverse())).toString(10);
+  }
+}
+
+export class GenerationSuffix {
+  val: Uint8Array<ArrayBufferLike>;
+  original: string;
+
+  constructor(suffix: string) {
+    const suffixOrig = suffix;
+    while (suffix.length < 8) {
+      suffix = "0" + suffix;
+    }
+    const byt = getBytes("0x" + suffix.slice(0, 8));
+    this.val = byt;
+    this.original = suffixOrig;
+  }
+
+  fullSuffix(): string {
     return this.original;
   }
 

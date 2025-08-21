@@ -1,13 +1,13 @@
 import { appendFile } from "fs/promises";
-import { GenerationPrefix } from "./params";
-import { computePrefixDifficulty } from "./difficulty";
+import { computePrefixDifficulty, computeSuffixDifficulty } from "./difficulty";
 import { AppContext } from "./app_context";
 import { ProofEntryResult } from "./estimator/proof";
 import { writeFileSync } from "fs";
+import { Problem } from "./lib/db/schema";
 
 export interface ResultsServiceOptions {
   csvOutput: string | null; // File name for CSV output
-  vanityPrefix: GenerationPrefix; // Optional vanity prefix
+  problems: Problem[];
 }
 
 export class ResultsService {
@@ -41,13 +41,29 @@ export class ResultsService {
       addrDifficulty: number,
     ) => void,
   ): Promise<void> {
-    if (entry.addr.startsWith(this.options.vanityPrefix.fullPrefix())) {
+    const prefixProblem = this.options.problems.find(
+      (p) => p.type === "user-prefix",
+    );
+    const suffixProblem = this.options.problems.find(
+      (p) => p.type === "user-suffix",
+    );
+    if (
+      prefixProblem &&
+      entry.addr.toLowerCase().startsWith(prefixProblem.specifier.toLowerCase())
+    ) {
       this.savedAddr.push(entry);
-      const addrDifficulty = computePrefixDifficulty(
-        this.options.vanityPrefix.fullPrefix(),
-      );
+      const addrDifficulty = computePrefixDifficulty(prefixProblem.specifier);
       onAddressFound(entry.jobId, entry.addr, addrDifficulty);
     }
+    if (
+      suffixProblem &&
+      entry.addr.toLowerCase().endsWith(suffixProblem.specifier.toLowerCase())
+    ) {
+      this.savedAddr.push(entry);
+      const addrDifficulty = computeSuffixDifficulty(suffixProblem.specifier);
+      onAddressFound(entry.jobId, entry.addr, addrDifficulty);
+    }
+
     if (this.options.csvOutput) {
       const csvLine = `0,${entry.addr},${entry.salt},${entry.pubKey},${entry.provider.id},${entry.provider.name},${entry.provider.walletAddress}\n`;
       await appendFile(this.options.csvOutput, csvLine);

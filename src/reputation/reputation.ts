@@ -2,10 +2,23 @@ import type { AppContext } from "../app_context";
 import type { Reputation } from "../node_manager/types";
 
 export class ReputationImpl implements Reputation {
-  private bannedProviders: string[] = [];
+  private _bannedProviders: string[] = [];
+
+  public bannedProviders(): object {
+    return this._bannedProviders;
+  }
 
   isProviderBanned(providerId: string): boolean {
-    return this.bannedProviders.includes(providerId);
+    return this._bannedProviders.includes(providerId);
+  }
+
+  numberOfBannedProviders(): number {
+    return this._bannedProviders.length;
+  }
+
+  reset(ctx: AppContext): void {
+    ctx.L().info("Resetting banned providers list");
+    this._bannedProviders = [];
   }
 
   /**
@@ -19,7 +32,7 @@ export class ReputationImpl implements Reputation {
     if (wasBannedBefore) {
       return true;
     }
-    this.bannedProviders.push(providerId);
+    this._bannedProviders.push(providerId);
     return false;
   }
 }

@@ -18,7 +18,7 @@ function validateVanityResult(
   result: VanityResult,
 ): ValidationResult {
   const isValidFormat = validateInputFormat(ctx, result);
-  if (isValidFormat.isValid === false) {
+  if (!isValidFormat.isValid) {
     return isValidFormat;
   }
 

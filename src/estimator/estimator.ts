@@ -17,8 +17,6 @@ export interface EstimatorInfo {
   cost: number;
   lastUpdated: Date;
   totalEfficiency: number | null;
-  // @todo This field should be elsewhere, but we lack object that is keeping job state and allows to control job
-  stopping?: boolean; // Optional field to indicate if the estimation is stopping
 }
 
 export function formatEstimatorInfo(info: EstimatorInfo) {
@@ -98,7 +96,6 @@ const MAX_HISTORY_SIZE = 1000;
 const HISTORY_TRUNCATE_AT_ONCE = 100;
 const MAX_USABLE_HISTORY_SIZE = MAX_HISTORY_SIZE - HISTORY_TRUNCATE_AT_ONCE;
 export class Estimator {
-  uploadUid: string | null = null; // Optional upload UID for tracking
   targetDifficulty: number;
   currentAttempts: number = 0;
   totalAttempts: number = 0; // Total attempts made
@@ -106,7 +103,6 @@ export class Estimator {
   providerName: string;
   providerId: string;
   currentCost: number = 0;
-  stopping: boolean = false; // Flag to indicate if the estimation is stopping
   _entries: EstimatorHistoryEntry[] = [];
 
   constructor(targetDifficulty: number, provName: string, providerId: string) {
@@ -331,7 +327,6 @@ export class Estimator {
       cost: this.currentCost,
       lastUpdated: this._lastUpdated(),
       totalEfficiency,
-      stopping: this.stopping || false, // Include stopping status
     };
   }
 }

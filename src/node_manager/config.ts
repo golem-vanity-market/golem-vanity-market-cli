@@ -43,14 +43,18 @@ export interface RentalConfig {
   maxCpuPerHourPrice?: number; // Maximum CPU price per hour in GLM tokens
 }
 
+export function getCruncherVersion() {
+  return process.env.CRUNCHER_VER || "prod-12.4.1";
+}
+
 /**
  * Abstract base class for rental configurations
  */
 export abstract class BaseRentalConfig {
   private _config: RentalConfig;
 
-  constructor(cruncherVersion: string = "prod-12.4.1") {
-    this._config = this.createConfig(cruncherVersion);
+  constructor() {
+    this._config = this.createConfig(getCruncherVersion());
   }
 
   /**
@@ -182,10 +186,16 @@ export class CPURentalConfig extends BaseRentalConfig {
 
   public generateCommand(params: GenerationParams): string {
     const cpuCount = this.config.cpuCount || 1;
-    const prefix = params.vanityAddressPrefix.toArg();
+    const prefix = params.vanityAddressPrefix?.toArg() || "";
+    const suffix = params.vanityAddressSuffix?.toArg() || "";
+
+    const prefixCommand = prefix ? `prefix=${prefix}` : "";
+    const suffixCommand = suffix ? `suffix=${suffix}` : "";
+
+    const commands = [prefixCommand, suffixCommand].filter(Boolean).join(";");
 
     // Create multiple prefix instances for parallel processing
-    const prefixes = ` "prefix=${prefix}"`.repeat(cpuCount);
+    const patterns = ` "${commands}"`.repeat(cpuCount);
 
     const commandParts = [
       "parallel",
@@ -203,7 +213,7 @@ export class CPURentalConfig extends BaseRentalConfig {
       params.publicKey,
       "-p",
       "{}",
-      `:::${prefixes}`,
+      `:::${patterns}`,
     ];
 
     return commandParts.join(" ");
@@ -238,7 +248,13 @@ export class GPURentalConfig extends BaseRentalConfig {
   }
 
   public generateCommand(params: GenerationParams): string {
-    const prefix = params.vanityAddressPrefix.toArg();
+    const prefix = params.vanityAddressPrefix?.toArg() || "";
+    const suffix = params.vanityAddressSuffix?.toArg() || "";
+
+    const prefixCommand = prefix ? `prefix=${prefix}` : "";
+    const suffixCommand = suffix ? `suffix=${suffix}` : "";
+
+    const commands = [prefixCommand, suffixCommand].filter(Boolean).join(";");
 
     const commandParts = [
       "profanity_cuda",
@@ -249,7 +265,7 @@ export class GPURentalConfig extends BaseRentalConfig {
       "-r",
       this.config.roundCount.toString(),
       "-p",
-      `"prefix=${prefix}"`,
+      `"${commands}"`,
       "-b",
       params.singlePassSeconds.toString(),
       "-z",
