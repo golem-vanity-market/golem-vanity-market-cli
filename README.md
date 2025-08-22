@@ -9,7 +9,7 @@ We are also committed to transparency and will be open-sourcing the code that ru
 ## Features
 
 - **Distributed Computing**: Harnesses the Golem Network's decentralized infrastructure for both CPU and GPU-based address generation.
-- **Vanity Address Generation**: Create Ethereum addresses with unique prefixes (e.g., an address starting with `0x1337...`).
+- **Vanity Address Generation**: Create Ethereum addresses with unique prefixes (e.g., an address starting with `0x1337...`) or suffixes (e.g., an address ending with `...beef`).
 - **Flexible Processing**: Choose between CPU and GPU workers to meet your performance needs.
 - **Budget Management**: Take control of your spending with comprehensive GLM budget controls, including automatic top-ups and spending limits.
 - **Observability**: Monitor performance and metrics with built-in OpenTelemetry integration.
@@ -139,6 +139,26 @@ npm run start -- generate \
   --budget-limit 10
 ```
 
+#### Generate an Address with a Custom Suffix
+
+You can also generate addresses that end with a specific pattern:
+
+**Linux/macOS:**
+
+```bash
+npm run start -- generate \
+  --public-key ./my-key.public \
+  --processing-unit cpu \
+  --vanity-address-suffix beef \
+  --budget-limit 10
+```
+
+**Windows:**
+
+```bash
+npm run start -- generate --public-key ./my-key.public --processing-unit cpu --vanity-address-suffix beef --budget-limit 10
+```
+
 **Windows:**
 
 ```bash
@@ -236,6 +256,7 @@ This command generates vanity addresses based on your specified parameters.
 
 - `--public-key <path>`: Path to the file containing your public key.
 - `--vanity-address-prefix <prefix>`: The desired vanity prefix for your address (1-10 alphanumeric characters).
+- `--vanity-address-suffix <suffix>`: The desired vanity suffix for your address (1-10 alphanumeric characters).
 
 #### Optional Options:
 
@@ -342,21 +363,66 @@ npm run list-gpu-offers
 
 You can configure the tool using the following environment variables:
 
-| Variable                            | Description                                            | Default Value                 |
-| ----------------------------------- | ------------------------------------------------------ | ----------------------------- |
-| `YAGNA_APPKEY`                      | Your Yagna application key (required)                  | (required)                    |
-| `OTEL_CONFIG_FILE`                  | Path to OpenTelemetry configuration file               | `monitoring/otel-config.yaml` |
-| `OTEL_LOG_LEVEL`                    | Logging level (`debug`, `info`, `warn`, `error`)       | `info`                        |
-| `MAX_CPU_ENV_PER_HOUR`              | Maximum price per hour for CPU environment (GLM)       | `0.1`                         |
-| `MAX_CPU_CPU_PER_HOUR`              | Maximum price per hour for CPU compute (GLM)           | `0.1`                         |
-| `MAX_GPU_ENV_PER_HOUR`              | Maximum price per hour for GPU environment (GLM)       | `2.0`                         |
-| `RESULT_CSV_FILE`                   | Custom file path for CSV output                        | `results-{current-date}.csv`  |
-| `MESSAGE_LOOP_SEC_INTERVAL`         | Interval for status updates in seconds                 | `30`                          |
-| `PROCESS_LOOP_SEC_INTERVAL`         | Interval for the main process loop in seconds          | `1`                           |
-| `COMMAND_EXECUTION_TIMEOUT_BUFFER`  | Extra time (ms) before aborting unresponsive commands  | `30000` (30s)                 |
-| `RENTAL_RELEASE_TIMEOUT`            | Timeout (ms) for releasing a rental                    | `30000` (30s)                 |
-| `RENTAL_DESTROY_TIMEOUT`            | Timeout (ms) for destroying a rental                   | `30000` (30s)                 |
-| `MAX_CONSECUTIVE_ALLOCATION_ERRORS` | Maximum consecutive allocation errors before giving up | `10`                          |
+| Variable                            | Description                                             | Default Value                 |
+| ----------------------------------- | ------------------------------------------------------- | ----------------------------- |
+| `YAGNA_APPKEY`                      | Your Yagna application key (required)                   | (required)                    |
+| `STATUS_SERVER`                     | HTTP server address for real-time monitoring (optional) | (disabled if not set)         |
+| `OTEL_CONFIG_FILE`                  | Path to OpenTelemetry configuration file                | `monitoring/otel-config.yaml` |
+| `OTEL_LOG_LEVEL`                    | Logging level (`debug`, `info`, `warn`, `error`)        | `info`                        |
+| `MAX_CPU_ENV_PER_HOUR`              | Maximum price per hour for CPU environment (GLM)        | `0.1`                         |
+| `MAX_CPU_CPU_PER_HOUR`              | Maximum price per hour for CPU compute (GLM)            | `0.1`                         |
+| `MAX_GPU_ENV_PER_HOUR`              | Maximum price per hour for GPU environment (GLM)        | `2.0`                         |
+| `RESULT_CSV_FILE`                   | Custom file path for CSV output                         | `results-{current-date}.csv`  |
+| `MESSAGE_LOOP_SEC_INTERVAL`         | Interval for status updates in seconds                  | `30`                          |
+| `PROCESS_LOOP_SEC_INTERVAL`         | Interval for the main process loop in seconds           | `1`                           |
+| `COMMAND_EXECUTION_TIMEOUT_BUFFER`  | Extra time (ms) before aborting unresponsive commands   | `30000` (30s)                 |
+| `RENTAL_RELEASE_TIMEOUT`            | Timeout (ms) for releasing a rental                     | `30000` (30s)                 |
+| `RENTAL_DESTROY_TIMEOUT`            | Timeout (ms) for destroying a rental                    | `30000` (30s)                 |
+| `MAX_CONSECUTIVE_ALLOCATION_ERRORS` | Maximum consecutive allocation errors before giving up  | `10`                          |
+
+## Status Monitoring (New in v0.1.9)
+
+The CLI now includes an optional HTTP status server for real-time monitoring of your vanity address generation progress. This feature is particularly useful for long-running jobs or when integrating with external monitoring systems.
+
+### Enabling the Status Server
+
+Set the `STATUS_SERVER` environment variable before running your generation command:
+
+```bash
+# Enable status server on localhost port 8080
+export STATUS_SERVER=http://localhost:8080
+
+npm run start -- generate \
+  --public-key ./my-key.public \
+  --vanity-address-prefix 0x1337 \
+  --budget-limit 10
+```
+
+### Available Endpoints
+
+Once enabled, you can monitor your generation progress through these HTTP endpoints:
+
+- `GET /status` - Current generation status and statistics
+- `GET /estimator` - Performance estimation data
+- `GET /golem-session` - Golem network connection status
+- `GET /reputation` - Provider reputation information
+
+**Example: Check current status**
+
+```bash
+# View current generation progress
+curl http://localhost:8080/status
+
+# Check performance estimates
+curl http://localhost:8080/estimator
+```
+
+This monitoring feature provides real-time insights into:
+
+- Generation progress and found addresses
+- Provider performance and costs
+- Network connectivity status
+- Time and difficulty estimates
 
 ## Troubleshooting
 
