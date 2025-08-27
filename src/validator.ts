@@ -3,6 +3,7 @@ import type { VanityResult } from "./node_manager/result";
 import * as EL from "elliptic";
 import { keccak256 } from "js-sha3";
 import type { AppContext } from "./app_context";
+import { getErrorMessage } from "./utils/format";
 
 const EC_INSTANCE = new EL.ec("secp256k1");
 
@@ -55,7 +56,7 @@ function validateVanityResult(
   } catch (error) {
     return {
       isValid: false,
-      msg: `Validation failed due to error: ${error}`,
+      msg: `Validation failed due to error: ${getErrorMessage(error)}`,
     };
   }
 }

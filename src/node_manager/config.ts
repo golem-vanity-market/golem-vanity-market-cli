@@ -2,11 +2,12 @@
  * Configuration for CPU and GPU rentals
  */
 
-import { GenerationParams, ProcessingUnitType } from "../params";
+import { GenerationParamsShort, ProcessingUnitType } from "../params";
 import { ExeUnit, Allocation, MarketOrderSpec } from "@golem-sdk/golem-js";
 import { filterProposal, selectBestProvider } from "./selector";
 import { Reputation } from "./types";
 import { AppContext } from "../app_context";
+import { getErrorMessage, safeStringifyStdout } from "../utils/format";
 
 /**
  * Configuration for a specific processing unit type
@@ -79,7 +80,7 @@ export abstract class BaseRentalConfig {
   /**
    * Generate the command to execute profanity_cuda for this processing unit type
    */
-  public abstract generateCommand(params: GenerationParams): string;
+  public abstract generateCommand(params: GenerationParamsShort): string;
 
   /**
    * Validate processing unit capabilities and update the relevant configuration internally.
@@ -169,7 +170,9 @@ export class CPURentalConfig extends BaseRentalConfig {
   public async checkAndSetCapabilities(exe: ExeUnit): Promise<void> {
     try {
       const result = await exe.run("nproc");
-      const cpuCount = parseInt(result.stdout?.toString().trim() ?? "1");
+      const cpuCount = parseInt(
+        safeStringifyStdout(result.stdout || "").trim() || "1",
+      );
 
       if (cpuCount < 1) {
         throw new Error("CPU count cannot be smaller than 1");
@@ -180,19 +183,26 @@ export class CPURentalConfig extends BaseRentalConfig {
 
       this.updateConfigCpuCount(cpuCount);
     } catch (error) {
-      throw new Error(`Failed to detect CPU capabilities: ${error}`);
+      throw new Error(
+        `Failed to detect CPU capabilities: ${getErrorMessage(error)}`,
+      );
     }
   }
 
-  public generateCommand(params: GenerationParams): string {
+  public generateCommand(params: GenerationParamsShort): string {
     const cpuCount = this.config.cpuCount || 1;
     const prefix = params.vanityAddressPrefix?.toArg() || "";
     const suffix = params.vanityAddressSuffix?.toArg() || "";
+    const mask =
+      params.problems.find((p) => p.type === "user-mask")?.specifier || "";
 
     const prefixCommand = prefix ? `prefix=${prefix}` : "";
     const suffixCommand = suffix ? `suffix=${suffix}` : "";
+    const maskCommand = mask ? `mask=${mask}` : "";
 
-    const commands = [prefixCommand, suffixCommand].filter(Boolean).join(";");
+    const commands = [prefixCommand, suffixCommand, maskCommand]
+      .filter(Boolean)
+      .join(";");
 
     // Create multiple prefix instances for parallel processing
     const patterns = ` "${commands}"`.repeat(cpuCount);
@@ -243,18 +253,25 @@ export class GPURentalConfig extends BaseRentalConfig {
       //don't waste time on unused command
       //await exe.run("nvidia-smi");
     } catch (error) {
-      throw new Error(`Failed to validate GPU capabilities: ${error}`);
+      throw new Error(
+        `Failed to validate GPU capabilities: ${getErrorMessage(error)}`,
+      );
     }
   }
 
-  public generateCommand(params: GenerationParams): string {
+  public generateCommand(params: GenerationParamsShort): string {
     const prefix = params.vanityAddressPrefix?.toArg() || "";
     const suffix = params.vanityAddressSuffix?.toArg() || "";
+    const mask =
+      params.problems.find((p) => p.type === "user-mask")?.specifier || "";
 
     const prefixCommand = prefix ? `prefix=${prefix}` : "";
     const suffixCommand = suffix ? `suffix=${suffix}` : "";
+    const maskCommand = mask ? `mask=${mask}` : "";
 
-    const commands = [prefixCommand, suffixCommand].filter(Boolean).join(";");
+    const commands = [prefixCommand, suffixCommand, maskCommand]
+      .filter(Boolean)
+      .join(";");
 
     const commandParts = [
       "profanity_cuda",

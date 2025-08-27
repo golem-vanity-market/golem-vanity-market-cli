@@ -81,30 +81,36 @@ export class BudgetMonitor {
     if (this.isStopped) {
       throw new Error("Budget monitor is stopped");
     }
-    this.monitorInterval = setInterval(async () => {
-      try {
-        const allocation = await this.getAllocation();
-        if (this.isBudgetExhausted(allocation)) {
-          if (onBudgetExhausted) {
-            onBudgetExhausted();
+    this.monitorInterval = setInterval(() => {
+      void (async () => {
+        try {
+          const allocation = await this.getAllocation();
+          if (this.isBudgetExhausted(allocation)) {
+            if (onBudgetExhausted) {
+              onBudgetExhausted();
+            }
+            return;
           }
-          return;
+          const newAllocation = await this.checkAndAmendBudget(allocation);
+          this.consecutiveErrors = 0; // Reset on success
+          if (onAllocationAmendSuccess) {
+            onAllocationAmendSuccess(newAllocation);
+          }
+        } catch (error) {
+          this.consecutiveErrors++;
+          if (
+            this.consecutiveErrors > this.maxConsecutiveErrors &&
+            onAllocationAmendError
+          ) {
+            onAllocationAmendError(error);
+            this.consecutiveErrors = 0; // Reset after reporting
+          }
         }
-        const newAllocation = await this.checkAndAmendBudget(allocation);
-        this.consecutiveErrors = 0; // Reset on success
-        if (onAllocationAmendSuccess) {
-          onAllocationAmendSuccess(newAllocation);
+      })().catch((err) => {
+        if (onAllocationAmendError) {
+          onAllocationAmendError(err);
         }
-      } catch (error) {
-        this.consecutiveErrors++;
-        if (
-          this.consecutiveErrors > this.maxConsecutiveErrors &&
-          onAllocationAmendError
-        ) {
-          onAllocationAmendError(error);
-          this.consecutiveErrors = 0; // Reset after reporting
-        }
-      }
+      });
     }, this.monitorIntervalMs);
   }
 

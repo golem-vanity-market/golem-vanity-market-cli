@@ -12,32 +12,39 @@ import type { SchedulerRecorder } from "./scheduler/types";
 import { v4 as uuidv4 } from "uuid";
 import { getProviderEstimatorSummaryMessage } from "./ui/displaySummary";
 import { sleep } from "@golem-sdk/golem-js";
+import { getErrorMessage } from "./utils/format";
+import { sleepMs } from "./utils/timeout";
 
 /**
  * The purpose of the Scheduler is to continuously generate tasks until either enough addresses are found or the budget is exhausted.
  */
 export class Scheduler {
-  schedulerRecorder: SchedulerRecorder;
-  iterationNo = 0;
-  _generationParams: GenerationParams | null;
+  private schedulerRecorder: SchedulerRecorder;
+  private iterationNo = 0;
+  private maxPossibleWorkers;
+  private estimator: EstimatorService;
+  private sessionManager: GolemSessionManager;
   constructor(
-    private readonly sessionManager: GolemSessionManager,
-    private readonly estimator: EstimatorService,
+    sessionManager: GolemSessionManager,
+    estimator: EstimatorService,
+    maxPossibleWorkers: number,
     recorder: SchedulerRecorder,
   ) {
     this.schedulerRecorder = recorder;
-    this._generationParams = null;
+    this.estimator = estimator;
+    this.sessionManager = sessionManager;
+    this.maxPossibleWorkers = maxPossibleWorkers;
   }
 
-  public generationParams(): GenerationParams | null {
-    return this._generationParams;
-  }
-
+  /**
+   * If `jobId` is not provided, a new UUID will be generated.
+   */
   public async runGenerationProcess(
     ctx: AppContext,
     params: GenerationParams,
+    jobId?: string,
   ): Promise<void> {
-    const jobId = uuidv4();
+    jobId = jobId || uuidv4();
 
     await this.schedulerRecorder.startGenerationJob(
       ctx,
@@ -54,7 +61,9 @@ export class Scheduler {
 
     budgetMonitor.startMonitoring({
       onAllocationAmendError: (error) => {
-        ctx.error(`Error monitoring and amending budget: ${error}`);
+        ctx.error(
+          `Error monitoring and amending budget: ${getErrorMessage(error)}`,
+        );
         ctx.consoleError(
           "⚠️ Cannot extend allocation, do you have enough GLMs? Stopping work ...",
         );
@@ -81,9 +90,11 @@ export class Scheduler {
 
     const workerPromises = [];
 
-    for (let i = 0; i < params.numberOfWorkers; i++) {
-      this._generationParams = params;
-
+    const MAX_POSSIBLE_WORKERS = parseInt(
+      process.env.MAX_POSSIBLE_WORKERS || params.numberOfWorkers.toString(),
+    );
+    this.maxWorkerCount = params.numberOfWorkers;
+    for (let i = 0; i < MAX_POSSIBLE_WORKERS; i++) {
       workerPromises.push(this.workInLoop(withWorkerNo(newCtx, i), params));
       await sleep(0.3);
     }
@@ -95,8 +106,22 @@ export class Scheduler {
     ctx.consoleInfo(
       `✅ Generation process completed. Found ${this.sessionManager.noResults}/${params.numResults} addresses.`,
     );
+
+    await this.schedulerRecorder.stopGenerationJob(ctx, jobId);
   }
 
+  private taskOpenedCount = 0;
+  private maxWorkerCount = 0;
+
+  public getNumberOfWorkers(): number {
+    return this.maxWorkerCount;
+  }
+  public getTaskOpenedCount(): number {
+    return this.taskOpenedCount;
+  }
+  public setNumberOfWorkers(numWorkers: number): void {
+    this.maxWorkerCount = numWorkers;
+  }
   /**
    * Runs work continuously until the main generation goals are met or work is stopped.
    * Note that `sessionManager.runSingleIteration` is _not_ guaranteed to run on the same
@@ -108,8 +133,6 @@ export class Scheduler {
   ): Promise<void> {
     // This loop continues as long as the overall job is not done
     while (!this.sessionManager.isWorkStopped()) {
-      this.iterationNo += 1;
-      const iterationNo = this.iterationNo;
       // Check if the target number of results is reached
       if (this.sessionManager.noResults >= params.numResults) {
         ctx.info(
@@ -122,13 +145,37 @@ export class Scheduler {
         break; // Exit the loop if the target is reached
       }
 
+      if (this.taskOpenedCount >= this.maxWorkerCount) {
+        await sleepMs(5_000);
+        continue;
+      }
+      this.taskOpenedCount += 1;
+
+      this.iterationNo += 1;
+      const iterationNo = this.iterationNo;
+
+      const shouldGentlyFinishRental = () => {
+        return this.getTaskOpenedCount() > this.getNumberOfWorkers();
+      };
       try {
         // A single provider runs one iteration. When it's done, the loop
         // will check conditions again and start another if needed.
         const iterInfo = await this.sessionManager.runSingleIteration(
           setIterationNo(ctx, iterationNo),
           params,
+          shouldGentlyFinishRental,
         );
+
+        if (iterInfo != null) {
+          ctx.M().observeProviderJob({
+            providerId: iterInfo.provider.id,
+            providerName: iterInfo.provider.name,
+            agreementId: iterInfo.agreementId,
+            iterationNo: iterationNo,
+            status: iterInfo.status,
+            durationSec: iterInfo.durationSeconds,
+          });
+        }
 
         if (iterInfo == null) {
           ctx.info(`No provider available`);
@@ -155,10 +202,14 @@ export class Scheduler {
           ctx.info(`Work was stopped, exiting the provider loop.`);
           break;
         }
-        ctx.error(`Unhandled error during a provider iteration: ${error}`);
+        ctx.error(
+          `Unhandled error during a provider iteration: ${getErrorMessage(error)}`,
+        );
         await sleep(5);
         // don't rethrow the error, just continue the loop, we'll get another provider
         // next time we call `runSingleIteration`
+      } finally {
+        this.taskOpenedCount -= 1;
       }
     }
   }

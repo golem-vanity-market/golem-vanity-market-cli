@@ -92,6 +92,10 @@ async function mainLoop() {
   }
 }
 
-mainLoop().then(() => {
-  console.log("Simulated random value found.");
-});
+mainLoop()
+  .then(() => {
+    console.log("Simulated random value found.");
+  })
+  .catch((error) => {
+    console.error("Error in simulation:", error);
+  });

@@ -110,7 +110,7 @@ describe("Vanity Address Generator CLI - Step 2", () => {
     it("should validate budget-limit is a positive number", () => {
       try {
         execSync(
-          `node ${cliPath} generate --public-key ${validPublicKeyPath} --vanity-address-prefix 0x1234 --budget-limit -50`,
+          `node ${cliPath} generate --public-key ${validPublicKeyPath} --vanity-address-prefix 0x12345678 --budget-limit -50`,
           { encoding: "utf8" },
         );
         fail("Should have thrown an error for negative budget");
@@ -261,7 +261,7 @@ describe("Unit Tests for Generate Command Functions", () => {
       };
 
       expect(() => validateGenerateOptions(invalidOptions)).toThrow(
-        "At least one of vanity address prefix or suffix is required: vanityAddressPrefix/vanityAddressSuffix",
+        "At least one pattern must be specified (vanityAddressPrefix, vanityAddressSuffix, vanityAddressLeading, vanityAddressTrailing, vanityAddressLettersHeavy, vanityAddressNumbersOnly, vanityAddressSnake, vanityAddressMask)",
       );
     });
 
@@ -283,7 +283,7 @@ describe("Unit Tests for Generate Command Functions", () => {
       };
 
       expect(() => validateGenerateOptions(invalidOptions)).toThrow(
-        "At least one of vanity address prefix or suffix is required: vanityAddressPrefix/vanityAddressSuffix",
+        "At least one pattern must be specified (vanityAddressPrefix, vanityAddressSuffix, vanityAddressLeading, vanityAddressTrailing, vanityAddressLettersHeavy, vanityAddressNumbersOnly, vanityAddressSnake, vanityAddressMask)",
       );
     });
 

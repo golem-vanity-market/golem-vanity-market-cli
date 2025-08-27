@@ -8,12 +8,17 @@ import {
 import { scoreProblems } from "../pattern/pattern";
 
 const ALL_PROBLEMS: Problem[] = [
-  { type: "leading-any" },
-  { type: "trailing-any" },
+  { type: "leading-any", length: 6 },
+  { type: "trailing-any", length: 6 },
   { type: "user-prefix", specifier: "0x1234567890abcdef" },
-  { type: "letters-heavy" },
+  {
+    type: "user-mask",
+    specifier: "abcxxxxxxxxxxx00xxxxxxxxxxx00xxxxxxxxcba",
+  },
+  { type: "user-suffix", specifier: "987654321" },
+  { type: "letters-heavy", count: 32 },
   { type: "numbers-heavy" },
-  { type: "snake-score-no-case" },
+  { type: "snake-score-no-case", count: 15 },
 ];
 
 describe("Pattern Scoring", () => {
@@ -24,7 +29,7 @@ describe("Pattern Scoring", () => {
       const expectedScore = 14;
       expect(result.category).toBe("user-prefix");
       expect(result.score).toBe(expectedScore);
-      expect(result.difficulty).toBeGreaterThan(1e15); // Should be very high
+      expect(result.difficulty).toBe(Math.pow(16, expectedScore));
     });
 
     it("should correctly identify 'leading-any' as the best category", () => {
@@ -64,6 +69,24 @@ describe("Pattern Scoring", () => {
       expect(result.category).toBe("numbers-heavy");
       expect(result.score).toBe(40);
       expect(result.difficulty).toBe(1 / (10 / 16) ** 40); // every (40) character is a number (10 choices out of 16)
+    });
+
+    it("should correctly identify 'user-suffix' as the best category", () => {
+      const address = "0xabcabcabcabcdef1234567890abcdef987654321";
+      const result = scoreProblems(address, ALL_PROBLEMS);
+      const expectedScore = 9;
+      expect(result.category).toBe("user-suffix");
+      expect(result.score).toBe(expectedScore);
+      expect(result.difficulty).toBe(Math.pow(16, expectedScore));
+    });
+
+    it("should correctly identify 'user-mask' as the best category", () => {
+      const address = "0xabcabcabcabcde00234567890ab00ef987654cba";
+      const result = scoreProblems(address, ALL_PROBLEMS);
+      const expectedScore = 40;
+      expect(result.category).toBe("user-mask");
+      expect(result.score).toBe(expectedScore);
+      expect(result.difficulty).toBe(Math.pow(16, 10)); // the mask has 10 characters that are not wildcards
     });
 
     it("should correctly identify 'snake-score-no-case' as the best category", () => {

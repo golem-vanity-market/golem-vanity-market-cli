@@ -12,22 +12,24 @@ import { Problem } from "../lib/db/schema";
 export type GeneratedAddressCategory =
   | "user-prefix" // The address starts with the user-defined prefix.
   | "user-suffix" // The address ends with the user-defined suffix.
+  | "user-mask" // The address matches the user-defined mask (e.g., 0xabcXXXabcXXXabc where X is any character).
   | "leading-any" // The number of leading characters that are the same.
   | "trailing-any" // The number of trailing characters that are the same.
   | "letters-heavy" // Addresses with a high number of letters (a-f).
   | "numbers-heavy" // Addresses with a high number of ciphers (0-9).
   | "snake-score-no-case"; // The number of repeating characters in the address. Case insensitive.
 
-type ProofThresholds = {
+export type ProofThresholds = {
   [key in GeneratedAddressCategory]?: number;
 };
 
 export const CPU_PROOF_THRESHOLDS: ProofThresholds = {
   "user-prefix": 6, // At least 6 characters matching user provided pattern
   "user-suffix": 6, // At least 6 characters matching user provided pattern
-  "leading-any": 6, // At least 6 leading identical characters
-  "trailing-any": 6, // At least 6 trailing identical characters
-  "letters-heavy": 32, // At least 32 letters (a-f)
+  "user-mask": 40, // Match the user mask exactly
+  "leading-any": 8, // At least 8 leading identical characters
+  "trailing-any": 8, // At least 8 trailing identical characters
+  "letters-heavy": 35, // At least 35 letters (a-f)
   "numbers-heavy": 40, // At least 40 numbers (0-9)
   "snake-score-no-case": 15, // At least 15 pairs of adjacent identical characters
 };
@@ -35,12 +37,19 @@ export const CPU_PROOF_THRESHOLDS: ProofThresholds = {
 export const GPU_PROOF_THRESHOLDS: ProofThresholds = {
   "user-prefix": 8, // At least 8 characters matching user provided pattern
   "user-suffix": 8, // At least 8 characters matching user provided pattern
+  "user-mask": 40, // Match the user mask exactly
   "leading-any": 8, // At least 8 leading identical characters
   "trailing-any": 8, // At least 8 trailing identical characters
   "letters-heavy": 35, // At least 35 letters (a-f)
-  "numbers-heavy": 40, // At least 35 numbers (0-9)
+  "numbers-heavy": 40, // At least 40 numbers (0-9)
   "snake-score-no-case": 15, // At least 15 pairs of adjacent identical characters
 };
+
+export type MatchingProblems = Array<{
+  problem: Problem;
+  score: number;
+  difficulty: number;
+}>;
 
 export interface AddressSinglePatternScore {
   category: GeneratedAddressCategory;
@@ -57,7 +66,7 @@ export interface AddressScore {
 
 export interface AddressProofResult {
   workDone: number;
-  passedProblem: Problem | null;
+  matchingProblems: MatchingProblems;
 }
 
 export function calculateLeadingAny(
@@ -151,12 +160,40 @@ export function calculateUserSuffix(
   return { category: "user-suffix", score, difficulty };
 }
 
+export function calculateUserMask(
+  addressStr: string,
+  userPattern: string,
+): AddressSinglePatternScore {
+  const patternLength = userPattern.length;
+  const addressFixed = addressStr.startsWith("0x")
+    ? addressStr.slice(2)
+    : addressStr;
+  // score == how many chars match the mask (X is a wildcard)
+  // difficulty == how many non-wildcard chars match
+  let score = 0;
+  let matchingChars = 0;
+  for (let i = 0; i < patternLength; i++) {
+    if (userPattern[i] === "x") {
+      score++;
+      continue;
+    }
+    if (addressFixed[i] === userPattern[i]) {
+      score++;
+      matchingChars++;
+    }
+  }
+  const difficulty = Math.pow(16, matchingChars);
+  return { category: "user-mask", score, difficulty };
+}
+
 export function scoreProblem(address: string, problem: Problem) {
   switch (problem.type) {
     case "user-prefix":
       return calculateUserPrefix(address, problem.specifier);
     case "user-suffix":
       return calculateUserSuffix(address, problem.specifier);
+    case "user-mask":
+      return calculateUserMask(address, problem.specifier);
     case "leading-any":
       return calculateLeadingAny(address);
     case "trailing-any":
@@ -208,6 +245,12 @@ export function calculateProbabilitySpace(
       return 16n ** BigInt(40 - threshold);
     }
 
+    case "user-mask": {
+      // The number of addresses with at least `threshold` characters matching the user-defined mask.
+      if (threshold > 40 || threshold < 1) return 0n;
+      return 16n ** BigInt(40 - threshold);
+    }
+
     case "leading-any": {
       // The number of addresses with at least `threshold` identical leading characters.
       if (threshold > 40 || threshold < 1) return 0n;
@@ -253,10 +296,49 @@ export function calculateProbabilitySpace(
   }
 }
 
-function calculateWorkUnitForProblems(
+/**
+ * Calculate the number of addresses that need to be checked on average
+ * to find an address matching at least one problem. If thresholds are not
+ * provided the calculation will be done based on the thresholds defined in each problem
+ */
+export function calculateWorkUnitForProblems(
   problems: Problem[],
-  thresholds: ProofThresholds,
+  thresholds?: ProofThresholds,
 ): number {
+  if (!thresholds) {
+    thresholds = problems.reduce((acc, problem) => {
+      switch (problem.type) {
+        case "user-prefix":
+          acc[problem.type] = problem.specifier.replace(/^0x/, "").length;
+          break;
+        case "user-suffix":
+          acc[problem.type] = problem.specifier.length;
+          break;
+        case "user-mask":
+          acc[problem.type] = problem.specifier.replace(/x/g, "").length;
+          break;
+        case "leading-any":
+          acc[problem.type] = problem.length;
+          break;
+        case "trailing-any":
+          acc[problem.type] = problem.length;
+          break;
+        case "letters-heavy":
+          acc[problem.type] = problem.count;
+          break;
+        case "numbers-heavy":
+          acc[problem.type] = 40;
+          break;
+        case "snake-score-no-case":
+          acc[problem.type] = problem.count;
+          break;
+        default:
+          break;
+      }
+      return acc;
+    }, {} as ProofThresholds);
+  }
+
   let totalProbabilitySpace = 0n;
 
   for (const problem of problems) {
@@ -285,38 +367,11 @@ export function checkAddressProof(
 
   const workPerProof = calculateWorkUnitForProblems(problems, thresholds);
 
-  const userPrefixProblem = problems.find((p) => p.type === "user-prefix");
-
-  // If one of the problems was a user-prefix/suffix, first check if we got it perfectly
-  if (
-    userPrefixProblem &&
-    address
-      .toLocaleLowerCase()
-      .startsWith(userPrefixProblem.specifier.toLowerCase())
-  ) {
-    return {
-      workDone: workPerProof,
-      passedProblem: userPrefixProblem,
-    };
-  }
-  const userSuffixProblem = problems.find((p) => p.type === "user-suffix");
-  if (
-    userSuffixProblem &&
-    address
-      .toLocaleLowerCase()
-      .endsWith(userSuffixProblem.specifier.toLowerCase())
-  ) {
-    return {
-      workDone: workPerProof,
-      passedProblem: userSuffixProblem,
-    };
-  }
-
   const addressFixed = (
     address.startsWith("0x") ? address.slice(2) : address
   ).toLowerCase();
 
-  const matchingProblems = [];
+  const matchingProblems: MatchingProblems = [];
   for (const problem of problems) {
     const problemScore = scoreProblem(addressFixed, problem);
     if (
@@ -333,17 +388,13 @@ export function checkAddressProof(
 
   if (matchingProblems.length === 0) {
     return {
-      passedProblem: null,
+      matchingProblems: [],
       workDone: 0,
     };
   }
 
-  const bestMatch = matchingProblems.reduce((prev, curr) => {
-    return prev.difficulty < curr.difficulty ? curr : prev;
-  });
-
   return {
-    passedProblem: bestMatch.problem,
+    matchingProblems,
     workDone: workPerProof,
   };
 }

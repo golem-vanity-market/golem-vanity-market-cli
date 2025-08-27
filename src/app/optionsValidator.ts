@@ -28,7 +28,12 @@ interface GenerateCmdOptions {
   publicKeyPath?: string; // Path to the public key file
   vanityAddressPrefix?: string;
   vanityAddressSuffix?: string;
-  prefix?: string;
+  vanityAddressLeading?: number;
+  vanityAddressTrailing?: number;
+  vanityAddressLettersHeavy?: number;
+  vanityAddressNumbersOnly?: boolean;
+  vanityAddressSnake?: number;
+  vanityAddressMask?: string;
   resultsFile?: string; // Path to save results
   processingUnit?: string; // Processing unit type ('cpu' or 'gpu')
   singlePassSec?: string; // Duration of a single pass in seconds
@@ -53,6 +58,7 @@ interface GenerateOptionsValidated {
   budgetLimit: number;
   vanityAddressPrefix: GenerationPrefix | null;
   vanityAddressSuffix: GenerationSuffix | null;
+  vanityAddressMask: string | null;
   processingUnitType: ProcessingUnitType;
 }
 
@@ -101,7 +107,7 @@ function readPublicKeyFromFile(publicKeyPath: string): string {
       throw error;
     }
     throw new GenerateCmdOptValidationError(
-      `Failed to read public key file: ${error}`,
+      `Failed to read public key file: ${String(error)}`,
       "publicKeyPath",
     );
   }
@@ -119,7 +125,7 @@ class PublicKey {
       byteArray = ethers.getBytes(publicKey);
     } catch (error) {
       throw new GenerateCmdOptValidationError(
-        `Invalid public key format. ${error}`,
+        `Invalid public key format. ${String(error)}`,
         publicKey,
       );
     }
@@ -193,7 +199,7 @@ function validateGenerateOptions(
 
   const publicKey = new PublicKey(options.publicKey);
 
-  // Require at least one of prefix or suffix to be present and valid
+  // Require at least one pattern to be specified
   const validPrefix =
     options.vanityAddressPrefix !== undefined &&
     options.vanityAddressPrefix !== null &&
@@ -205,10 +211,18 @@ function validateGenerateOptions(
     options.vanityAddressSuffix.length > 0 &&
     options.vanityAddressSuffix;
 
-  if (!validPrefix && !validSuffix) {
+  if (
+    !validPrefix &&
+    !validSuffix &&
+    !options.vanityAddressLeading &&
+    !options.vanityAddressTrailing &&
+    !options.vanityAddressLettersHeavy &&
+    !options.vanityAddressNumbersOnly &&
+    !options.vanityAddressSnake &&
+    !options.vanityAddressMask
+  ) {
     throw new GenerateCmdOptValidationError(
-      "At least one of vanity address prefix or suffix is required",
-      "vanityAddressPrefix/vanityAddressSuffix",
+      "At least one pattern must be specified (vanityAddressPrefix, vanityAddressSuffix, vanityAddressLeading, vanityAddressTrailing, vanityAddressLettersHeavy, vanityAddressNumbersOnly, vanityAddressSnake, vanityAddressMask)",
     );
   }
 
@@ -231,6 +245,12 @@ function validateGenerateOptions(
         "vanityAddressPrefix",
       );
     }
+    if (validPrefix.replace("0x", "").length < 6) {
+      throw new GenerateCmdOptValidationError(
+        "Vanity address prefix must be at least 6 characters long",
+        "vanityAddressPrefix",
+      );
+    }
   }
 
   if (validSuffix) {
@@ -246,14 +266,105 @@ function validateGenerateOptions(
         "vanityAddressSuffix",
       );
     }
+    if (validSuffix.length < 6) {
+      throw new GenerateCmdOptValidationError(
+        "Vanity address suffix must be at least 6 characters long",
+        "vanityAddressSuffix",
+      );
+    }
+  }
+  if (options.vanityAddressLeading) {
+    if (
+      isNaN(options.vanityAddressLeading) ||
+      options.vanityAddressLeading < 8 ||
+      options.vanityAddressLeading > 40
+    ) {
+      throw new GenerateCmdOptValidationError(
+        "Vanity address leading must be a number between 8 and 40",
+        "vanityAddressLeading",
+      );
+    }
+  }
+  if (options.vanityAddressTrailing) {
+    if (
+      isNaN(options.vanityAddressTrailing) ||
+      options.vanityAddressTrailing < 8 ||
+      options.vanityAddressTrailing > 40
+    ) {
+      throw new GenerateCmdOptValidationError(
+        "Vanity address trailing must be a number between 8 and 40",
+        "vanityAddressTrailing",
+      );
+    }
+  }
+  if (options.vanityAddressLettersHeavy) {
+    if (
+      isNaN(options.vanityAddressLettersHeavy) ||
+      options.vanityAddressLettersHeavy < 32 ||
+      options.vanityAddressLettersHeavy > 40
+    ) {
+      throw new GenerateCmdOptValidationError(
+        "Vanity address letters heavy must be a number between 32 and 40",
+        "vanityAddressLettersHeavy",
+      );
+    }
+  }
+
+  if (options.vanityAddressSnake) {
+    if (
+      isNaN(options.vanityAddressSnake) ||
+      options.vanityAddressSnake < 15 ||
+      options.vanityAddressSnake > 39
+    ) {
+      throw new GenerateCmdOptValidationError(
+        "Vanity address snake must be a number between 15 and 39",
+        "vanityAddressSnake",
+      );
+    }
+  }
+
+  if (options.vanityAddressMask) {
+    const maskToLower = options.vanityAddressMask.toLowerCase();
+    if (maskToLower.length !== 42) {
+      throw new GenerateCmdOptValidationError(
+        "Vanity address mask must be exactly 42 characters long",
+        "vanityAddressMask",
+      );
+    }
+    if (!maskToLower.startsWith("0x")) {
+      throw new GenerateCmdOptValidationError(
+        "Vanity address mask must start with '0x'",
+        "vanityAddressMask",
+      );
+    }
+    if (!/^[0-9a-fx]*$/.test(maskToLower)) {
+      throw new GenerateCmdOptValidationError(
+        "Vanity address mask must only contain hexadecimal characters and 'x' placeholders",
+        "vanityAddressMask",
+      );
+    }
+    const nonXCount = Array.from(maskToLower).filter(
+      (char) => char !== "x",
+    ).length;
+    if (nonXCount < 6) {
+      throw new GenerateCmdOptValidationError(
+        "Vanity address mask must have at least 6 non-'x' characters",
+        "vanityAddressMask",
+      );
+    }
   }
 
   // Validate budget constraints
   const validateBudget = (optionName: string, optionValue: unknown) => {
-    if (optionValue === undefined || optionValue === null) {
+    if (
+      optionValue === undefined ||
+      optionValue === null ||
+      (typeof optionValue !== "string" && typeof optionValue !== "number")
+    ) {
       throw new GenerateCmdOptValidationError("Budget is required", optionName);
     }
-    const valueAsNumber = parseFloat(optionValue.toString());
+    const valueAsNumber =
+      typeof optionValue === "string" ? parseFloat(optionValue) : optionValue;
     if (isNaN(valueAsNumber)) {
       throw new GenerateCmdOptValidationError(
         "Budget must be a number",
@@ -303,6 +414,9 @@ function validateGenerateOptions(
     publicKey: publicKey,
     vanityAddressPrefix: validPrefix ? new GenerationPrefix(validPrefix) : null,
     vanityAddressSuffix: validSuffix ? new GenerationSuffix(validSuffix) : null,
+    vanityAddressMask: options.vanityAddressMask
+      ? options.vanityAddressMask.toLowerCase().substring(2)
+      : null,
     budgetInitial: parsedBudgetInitial,
     budgetTopUp: parsedBudgetTopUp,
     budgetLimit: parsedBudgetLimit,

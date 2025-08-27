@@ -9,8 +9,8 @@ import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentation
 import {
   PeriodicExportingMetricReader,
   InMemoryMetricExporter, // For testing
-  PushMetricExporter,
-  ResourceMetrics,
+  AggregationType,
+  InstrumentType,
 } from "@opentelemetry/sdk-metrics";
 import {
   BatchLogRecordProcessor,
@@ -26,49 +26,7 @@ import {
   ATTR_SERVICE_VERSION,
 } from "@opentelemetry/semantic-conventions";
 import { resourceFromAttributes } from "@opentelemetry/resources";
-
-// --- Custom Exporters with Asynchronous I/O ---
-class FileMetricExporter implements PushMetricExporter {
-  private filePath: string;
-  private writer: WriteStream;
-
-  constructor(filePath: string) {
-    this.filePath = filePath;
-    this.writer = createWriteStream(this.filePath, { flags: "a" });
-  }
-
-  async export(metrics: ResourceMetrics): Promise<ExportResult> {
-    try {
-      const data = JSON.stringify(metrics) + "\n";
-      // Write to the stream. This is a non-blocking operation.
-      // We check the return value to handle backpressure if the stream is slow.
-      if (!this.writer.write(data)) {
-        // If the buffer is full, wait for it to drain before continuing.
-        await new Promise<void>((resolve) =>
-          this.writer.once("drain", resolve),
-        );
-      }
-      return { code: ExportResultCode.SUCCESS };
-    } catch (error) {
-      console.error("Failed to export metrics to file:", error);
-      return { code: ExportResultCode.FAILED, error: error as Error };
-    }
-  }
-
-  async shutdown(): Promise<void> {
-    return new Promise((resolve) => {
-      this.writer.end(() => {
-        console.log("FileMetricExporter stream closed.");
-        resolve();
-      });
-    });
-  }
-
-  async forceFlush(): Promise<void> {
-    // This exporter doesn't buffer, so flush is a no-op
-    return Promise.resolve();
-  }
-}
+import { PrometheusExporter } from "@opentelemetry/exporter-prometheus";
 
 class FileLogRecordExporter implements LogRecordExporter {
   private filePath: string;
@@ -83,24 +41,36 @@ class FileLogRecordExporter implements LogRecordExporter {
   /**
    * Writes logs to the file stream sequentially instead of in one large batch.
    */
-  async export(logs: ReadableLogRecord[]): Promise<ExportResult> {
-    try {
-      for (const log of logs) {
-        const data = JSON.stringify(log) + "\n";
-        // Write to the stream. This is a non-blocking operation.
-        // We check the return value to handle backpressure if the stream is slow.
-        if (!this.writer.write(data)) {
-          // If the buffer is full, wait for it to drain before continuing.
-          await new Promise<void>((resolve) =>
-            this.writer.once("drain", resolve),
-          );
+  export(
+    logs: ReadableLogRecord[],
+    resultCallback: (result: ExportResult) => void,
+  ): void {
+    (async () => {
+      try {
+        for (const log of logs) {
+          const data = JSON.stringify(log) + "\n";
+          // Write to the stream. This is a non-blocking operation.
+          // We check the return value to handle backpressure if the stream is slow.
+          if (!this.writer.write(data)) {
+            // If the buffer is full, wait for it to drain before continuing.
+            await new Promise<void>((resolve) =>
+              this.writer.once("drain", resolve),
+            );
+          }
         }
+        return { code: ExportResultCode.SUCCESS };
+      } catch (error) {
+        console.error("Failed to export logs to file:", error);
+        return { code: ExportResultCode.FAILED, error: error as Error };
       }
-      return { code: ExportResultCode.SUCCESS };
-    } catch (error) {
-      console.error("Failed to export logs to file:", error);
-      return { code: ExportResultCode.FAILED, error: error as Error };
-    }
+    })()
+      .then((result) => {
+        resultCallback(result);
+      })
+      .catch((error) => {
+        console.error("Failed to export logs to file:", error);
+        resultCallback({ code: ExportResultCode.FAILED, error });
+      });
   }
 
   /**
@@ -185,26 +155,44 @@ function createSDKConfig() {
     require("fs").mkdirSync(logsDir, { recursive: true });
   }
 
-  const fileMetricExporter = new FileMetricExporter(
-    path.join(logsDir, "metrics.jsonl"),
-  );
   const fileLogExporter = new FileLogRecordExporter(
     path.join(logsDir, "logs.jsonl"),
   );
 
+  const promMetricExporter = new PrometheusExporter({
+    port: 9464,
+  });
+
+  promMetricExporter
+    .startServer()
+    .then(() => {
+      console.log("Prometheus metrics server started on port: 9464");
+    })
+    .catch((error) => {
+      console.error("Failed to start Prometheus metrics server:", error);
+      // Continue execution - telemetry failure should not break CLI functionality
+    });
+
   return {
     instrumentations: [getNodeAutoInstrumentations()],
-    metricReader: new PeriodicExportingMetricReader({
-      exporter: fileMetricExporter,
-      exportIntervalMillis: 2500,
-      exportTimeoutMillis: 2000,
-    }),
+    metricReader: promMetricExporter,
     logRecordProcessors: [new SimpleLogRecordProcessor(fileLogExporter)],
     shutdownTimeout: 8000,
     resource: resourceFromAttributes({
       [ATTR_SERVICE_NAME]: APP_NAME,
       [ATTR_SERVICE_VERSION]: APP_VERSION,
     }),
+    views: [
+      // Configure explicit bucket boundaries for provider job duration histogram
+      {
+        aggregation: {
+          type: AggregationType.EXPLICIT_BUCKET_HISTOGRAM,
+          boundaries: [1, 5, 10, 18, 19, 20, 21, 22, 25, 30, 40],
+        },
+        instrumentName: "provider_job_iteration_duration_sec",
+        instrumentType: InstrumentType.HISTOGRAM,
+      },
+    ],
   };
 }
 

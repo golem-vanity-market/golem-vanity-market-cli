@@ -14,6 +14,7 @@ import {
 import { GolemServices } from "@golem-sdk/golem-js/dist/golem-network";
 import { PaymentModuleOptions } from "@golem-sdk/golem-js/dist/payment/payment.module";
 import { debitNotesTable, NewDebitNoteModel } from "../lib/db/schema";
+import { getErrorMessage } from "../utils/format";
 
 export class VanityPaymentModule extends PaymentModuleImpl {
   public static estimatorService: EstimatorService;
@@ -40,6 +41,7 @@ export class VanityPaymentModule extends PaymentModuleImpl {
         VanityPaymentModule.ctx
           .L()
           .error(`Invalid amount in debit note: ${debitNote.id}`);
+        this.meterDebitNotes(debitNote, "invalid_amount");
         throw new Error(`Invalid amount in debit note: ${debitNote.id}`);
       }
 
@@ -55,6 +57,7 @@ export class VanityPaymentModule extends PaymentModuleImpl {
           .warn(
             `EstimatorService terminated the agreement for debit note ${debitNote.id}`,
           );
+        this.meterDebitNotes(debitNote, "terminated");
         return debitNote;
       }
 
@@ -69,6 +72,7 @@ export class VanityPaymentModule extends PaymentModuleImpl {
           .error(
             `Failed to report costs for debit note ${debitNote.id}: ${resp.reason}`,
           );
+        this.meterDebitNotes(debitNote, "not_accepted");
         return debitNote;
       }
       const newDebitNote: NewDebitNoteModel = {
@@ -81,11 +85,15 @@ export class VanityPaymentModule extends PaymentModuleImpl {
         .getDB()
         .insert(debitNotesTable)
         .values(newDebitNote);
+      this.meterDebitNotes(debitNote, newDebitNote.status);
       return await super.acceptDebitNote(debitNote, allocation, amount);
     } catch (error) {
       VanityPaymentModule.ctx
         .L()
-        .error(`Failed to accept debit note ${debitNote.id}: ${error}`);
+        .error(
+          `Failed to accept debit note ${debitNote.id}: ${getErrorMessage(error)}`,
+        );
+      this.meterDebitNotes(debitNote, "error");
       throw error;
     }
   }
@@ -101,6 +109,7 @@ export class VanityPaymentModule extends PaymentModuleImpl {
         VanityPaymentModule.ctx
           .L()
           .error(`Invalid amount in invoice: ${invoice.id}`);
+        this.meterInvoice(invoice, "invalid_amount");
         throw new Error(`Invalid amount in invoice: ${invoice.id}`);
       }
       if (
@@ -115,6 +124,7 @@ export class VanityPaymentModule extends PaymentModuleImpl {
           .warn(
             `EstimatorService terminated the agreement for invoice ${invoice.id}`,
           );
+        this.meterInvoice(invoice, "terminated");
         return invoice;
       }
 
@@ -128,14 +138,19 @@ export class VanityPaymentModule extends PaymentModuleImpl {
           .error(
             `Failed to report costs for invoice ${invoice.id}: ${resp.reason}`,
           );
+        this.meterInvoice(invoice, "not_accepted");
         return invoice;
       }
 
+      this.meterInvoice(invoice, "accepted");
       return await super.acceptInvoice(invoice, allocation, amount);
     } catch (err) {
       VanityPaymentModule.ctx
         .L()
-        .error(`Failed to accept invoice ${invoice.id}: ${err}`);
+        .error(
+          `Failed to accept invoice ${invoice.id}: ${getErrorMessage(err)}`,
+        );
+      this.meterInvoice(invoice, "error");
       throw err;
     }
   }
@@ -172,5 +187,27 @@ export class VanityPaymentModule extends PaymentModuleImpl {
       logger.error("Error amending allocation", { err });
       throw err;
     }
+  }
+
+  meterInvoice(invoice: Invoice, status: string) {
+    const m = VanityPaymentModule.ctx.M();
+    m.observeProviderInvoice({
+      providerId: invoice.provider.id,
+      providerName: invoice.provider.name,
+      agreementId: invoice.agreementId,
+      amount: parseFloat(invoice.amount),
+      status,
+    });
+  }
+
+  meterDebitNotes(debitNote: DebitNote, status: string) {
+    const m = VanityPaymentModule.ctx.M();
+    m.observeProviderDebitNote({
+      providerId: debitNote.provider.id,
+      providerName: debitNote.provider.name,
+      agreementId: debitNote.agreementId,
+      amount: parseFloat(debitNote.totalAmountDue),
+      status,
+    });
   }
 }

@@ -1,7 +1,7 @@
 import { ProviderInfo } from "@golem-sdk/golem-js";
 import { ProcessingUnitType } from "../params";
 import { AppContext } from "../app_context";
-import { checkAddressProof } from "../pattern/pattern";
+import { checkAddressProof, MatchingProblems } from "../pattern/pattern";
 import { Problem } from "../lib/db/schema";
 
 export type CommandStatus = "success" | "not_found" | "stopped";
@@ -10,12 +10,8 @@ export type VanityResult = {
   address: string;
   salt: string;
   pubKey: string;
-  problem: Problem | null;
+  matchingProblems: MatchingProblems;
   workDone: number;
-};
-
-export type VanityResultMatchingProblem = VanityResult & {
-  problem: Problem;
 };
 
 export interface IterationInfo {
@@ -87,7 +83,7 @@ export function parseVanityResult(
   const address = parts[1].trim();
   const pubKey = parts[2].trim();
 
-  const { passedProblem, workDone } = checkAddressProof(
+  const { matchingProblems, workDone } = checkAddressProof(
     address,
     problems,
     processingUnit,
@@ -96,7 +92,7 @@ export function parseVanityResult(
     address,
     salt,
     pubKey,
-    problem: passedProblem,
+    matchingProblems,
     workDone,
   };
 }

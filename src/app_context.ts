@@ -65,6 +65,13 @@ export class AppContext {
     return this.logger;
   }
 
+  public M(): MetricsCollector {
+    if (!this.collector) {
+      throw new Error("MetricsCollector is not set in the AppContext");
+    }
+    return this.collector;
+  }
+
   public withValue<T>(key: string, value: T): AppContext {
     const otl_key = otl.createContextKey(key);
     const newOtlCtx = this._activeContext.setValue(otl_key, value);

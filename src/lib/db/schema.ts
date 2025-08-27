@@ -1,6 +1,5 @@
 import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { InferInsertModel, InferSelectModel, sql } from "drizzle-orm";
-import { GeneratedAddressCategory } from "../../pattern/pattern";
 
 export const processingUnitNames = ["cpu", "gpu"] as const;
 export const statusNames = [
@@ -24,7 +23,23 @@ export type DebitNoteStatus = (typeof debitNoteStatusNames)[number];
 
 export type Problem =
   | {
-      type: Exclude<GeneratedAddressCategory, "user-prefix" | "user-suffix">;
+      type: "leading-any";
+      length: number;
+    }
+  | {
+      type: "trailing-any";
+      length: number;
+    }
+  | {
+      type: "letters-heavy";
+      count: number;
+    }
+  | {
+      type: "numbers-heavy";
+    }
+  | {
+      type: "snake-score-no-case";
+      count: number;
     }
   | {
       type: "user-prefix";
@@ -32,6 +47,10 @@ export type Problem =
     }
   | {
       type: "user-suffix";
+      specifier: string;
+    }
+  | {
+      type: "user-mask";
       specifier: string;
     };
 
@@ -44,6 +63,10 @@ export const jobsTable = sqliteTable("job", {
   processingUnit: text({ enum: processingUnitNames })
     .notNull()
     .$type<ProcessingUnit>(),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`(current_timestamp)`),
+  endedAt: text("ended_at"),
 });
 
 export type NewJobModel = InferInsertModel<typeof jobsTable>;

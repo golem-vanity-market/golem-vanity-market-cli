@@ -108,13 +108,17 @@ export class EstimatorService {
     providerName: string,
     providerId: string,
     providerWalletAddress: string,
-    diff: number,
+    targetDifficulty: number,
   ) {
     if (!this.totalEstimator) {
-      this.totalEstimator = new Estimator(diff, "total", "provider-total");
+      this.totalEstimator = new Estimator(
+        targetDifficulty,
+        "total",
+        "provider-total",
+      );
     }
     if (!this.estimators.has(jobId)) {
-      const est = new Estimator(diff, providerName, providerId);
+      const est = new Estimator(targetDifficulty, providerName, providerId);
       this.estimators.set(jobId, est);
 
       const queue: ProofEntryResult[] = [];
@@ -163,23 +167,11 @@ export class EstimatorService {
 
     let totalWorkThisRun = 0;
     for (const entry of proofQueue) {
-      const prefixProblem = this.options.problems.find(
-        (p) => p.type === "user-prefix",
+      this.totalEstimator?.addProvedWork(
+        entry.workDone,
+        !!entry.matchingUserProblem,
       );
-      const suffixProblem = this.options.problems.find(
-        (p) => p.type === "user-suffix",
-      );
-      const isUserPattern = prefixProblem
-        ? entry.addr
-            .toLowerCase()
-            .startsWith(prefixProblem.specifier.toLowerCase())
-        : suffixProblem
-          ? entry.addr
-              .toLowerCase()
-              .endsWith(suffixProblem.specifier.toLowerCase())
-          : false;
-      this.totalEstimator?.addProvedWork(entry.workDone, isUserPattern);
-      estimator.addProvedWork(entry.workDone, isUserPattern);
+      estimator.addProvedWork(entry.workDone, !!entry.matchingUserProblem);
       totalWorkThisRun += entry.workDone;
     }
     if (proofQueue.length > 0) {

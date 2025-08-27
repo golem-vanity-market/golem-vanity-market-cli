@@ -65,7 +65,7 @@ describe("VanityResult Validator", () => {
           address: entry.addr,
           salt: entry.salt,
           pubKey: entry.pubKey,
-          problem: null,
+          matchingProblems: [],
           workDone: 0,
         };
 
@@ -85,7 +85,7 @@ describe("VanityResult Validator", () => {
           address: testCase.addr,
           salt: testCase.salt,
           pubKey: testCase.pubKey,
-          problem: null,
+          matchingProblems: [],
           workDone: 0,
         };
         console.log(`Testing: ${testName}`);

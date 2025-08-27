@@ -10,16 +10,12 @@ import {
 
 // Internal imports
 import { type AppContext, getJobId } from "../app_context";
-import { type GenerationParams, ProcessingUnitType } from "../params";
+import { GenerationParamsShort, ProcessingUnitType } from "../params";
 import {
   type BaseRentalConfig,
   CPURentalConfig,
   GPURentalConfig,
 } from "./config";
-import {
-  computePrefixDifficulty,
-  computeSuffixDifficulty,
-} from "../difficulty";
 import type { EstimatorService } from "../estimator_service";
 import type { ResultsService } from "../results_service";
 import { VanityPaymentModule } from "./payment_module";
@@ -28,10 +24,10 @@ import {
   type IterationInfo,
   type ParsedResults,
   type CommandResult,
-  VanityResultMatchingProblem,
+  VanityResult,
 } from "./result";
 import { ProofEntryResult } from "../estimator/proof";
-import { displayDifficulty } from "../utils/format";
+import { safeStringifyStdout } from "../utils/format";
 import { validateVanityResult } from "../validator";
 
 import {
@@ -40,8 +36,9 @@ import {
   getProviderJobId,
   withProviderJobID,
 } from "./types";
-import { ProviderJobModel } from "../lib/db/schema";
+import { Problem, ProviderJobModel } from "../lib/db/schema";
 import { JobUploaderService } from "./job_uploader";
+import { calculateWorkUnitForProblems } from "../pattern/pattern";
 
 /**
  * Parameters for the GolemSessionManager constructor
@@ -49,6 +46,9 @@ import { JobUploaderService } from "./job_uploader";
 export interface SessionManagerParams {
   /** Rental duration in seconds */
   rentalDurationSeconds: number;
+
+  /** Maximum number of workers to use */
+  maxPossibleWorkers: number;
 
   /** Initial allocation size in GLMs */
   budgetInitial: number;
@@ -77,16 +77,17 @@ export class GolemSessionManager {
   private allocation?: Allocation;
   private rentalPool?: ResourceRentalPool;
   private estimatorService: EstimatorService;
-  private jobUploaderService: JobUploaderService | null;
+  private jobUploaderServices: JobUploaderService[];
   private reputation: Reputation;
   private resultService: ResultsService;
   private stopWorkAC: AbortController = new AbortController();
   private dbRecorder: GolemSessionRecorder;
+  private maxPossibleWorkers: number;
 
   constructor(
     params: SessionManagerParams,
     recorder: GolemSessionRecorder,
-    jobUploader: JobUploaderService | null,
+    jobUploaders: JobUploaderService[],
   ) {
     this.rentalDurationSeconds = params.rentalDurationSeconds;
     this.budgetInitial = params.budgetInitial;
@@ -94,8 +95,9 @@ export class GolemSessionManager {
     this.estimatorService = params.estimatorService;
     this.reputation = params.reputation;
     this.resultService = params.resultService;
+    this.maxPossibleWorkers = params.maxPossibleWorkers;
     this.dbRecorder = recorder;
-    this.jobUploaderService = jobUploader;
+    this.jobUploaderServices = jobUploaders;
   }
 
   public async saveResultsToFile(filePath: string): Promise<void> {
@@ -234,7 +236,7 @@ export class GolemSessionManager {
       this.rentalPool = await glm.manyOf({
         poolSize: {
           min: 0,
-          max: 100,
+          max: this.maxPossibleWorkers,
         }, //unused in our case, we are managing pool size manually
         order: this.getConfigBasedOnProcessingUnitType().getOrder(
           ctx,
@@ -307,7 +309,7 @@ export class GolemSessionManager {
   private async runCommand(
     ctx: AppContext,
     rental: ResourceRental,
-    generationParams: GenerationParams,
+    generationParams: GenerationParamsShort,
   ): Promise<CommandResult> {
     const config = this.getConfigBasedOnProcessingUnitType();
 
@@ -360,9 +362,9 @@ export class GolemSessionManager {
           AbortSignal.timeout(commandExecutionSec * 1000 + timeoutBufferSec), // timeout = expected time to execute command + buffer
         ).signal,
       });
-      ctx.info(
-        `Command finished after ${((Date.now() - startTime) / 1000).toFixed(1)} s`,
-      );
+
+      const endTimeSec = (Date.now() - startTime) / 1000;
+      ctx.info(`Command finished after ${endTimeSec.toFixed(1)} s`);
 
       /* Uncomment this code to parse reported compute stats
       let biggestCompute = 0;
@@ -386,7 +388,7 @@ export class GolemSessionManager {
        */
       await this.dbRecorder.providerJobCompleted(ctx, getProviderJobId(ctx));
 
-      const stdout = res.stdout ? String(res.stdout) : "";
+      const stdout = safeStringifyStdout(res.stdout || "");
 
       const parsedResults: ParsedResults = parseVanityResults(
         ctx,
@@ -398,7 +400,7 @@ export class GolemSessionManager {
       const cmdResult: CommandResult = {
         agreementId,
         provider,
-        durationSeconds: generationParams.singlePassSeconds,
+        durationSeconds: endTimeSec,
         results: parsedResults.results,
         failedLines: parsedResults.failedLines,
         status: "success",
@@ -506,7 +508,8 @@ export class GolemSessionManager {
    */
   public async runSingleIteration(
     ctx: AppContext,
-    generationParams: GenerationParams,
+    generationParams: GenerationParamsShort,
+    shouldGentlyFinishRental: () => boolean,
   ): Promise<IterationInfo | null> {
     if (this.stopWorkAC.signal.aborted) {
       ctx.info("Work was stopped by user");
@@ -551,9 +554,16 @@ export class GolemSessionManager {
       rental.agreement,
     );
     ctx = withProviderJobID(ctx, providerJobId);
-
+    /* @todo connect this metric
+    iterationCountMetric.inc();
+    iterationCountMetric.inc({ provider_id: rental.agreement.provider.id });
+    */
     try {
-      await this.initEstimatorForRental(rental, generationParams);
+      const problems = generationParams.problems;
+
+      const workToFindAnyUserPattern = calculateWorkUnitForProblems(problems);
+
+      await this.initEstimatorForRental(rental, workToFindAnyUserPattern);
       await this.initJobUploaderForRental(rental);
 
       ctx.info(`Running command on provider: ${providerName}`);
@@ -569,11 +579,13 @@ export class GolemSessionManager {
       await this.estimatorService.process(rental.agreement.id);
 
       //don't have to await this, it can be processed in the background
-      this.jobUploaderService?.process(rental.agreement.id).catch((error) => {
-        ctx.error(
-          `Error during job uploader processing for agreement ${rental.agreement.id}: ${error}`,
-        );
-      });
+      for (const uploader of this.jobUploaderServices) {
+        uploader.process(rental.agreement.id).catch((error) => {
+          ctx.error(
+            `Error during job uploader processing for agreement ${rental.agreement.id}: ${error}`,
+          );
+        });
+      }
 
       await this.storeHashRate(ctx, providerJobId, rental.agreement.id);
 
@@ -598,14 +610,26 @@ export class GolemSessionManager {
     }
     try {
       if (shouldKeepRental) {
-        ctx.info(`Releasing rental to the pool...`);
-        await this.rentalPool.release(
-          rental,
-          AbortSignal.timeout(
-            Number(process.env.RENTAL_RELEASE_TIMEOUT) || 30_000,
-          ),
-        );
-        ctx.info(`Rental released`);
+        if (shouldGentlyFinishRental()) {
+          ctx.info(
+            `Gently closing rental with provider: ${providerName}, waiting for next command`,
+          );
+          await this.rentalPool.destroy(
+            rental,
+            AbortSignal.timeout(
+              Number(process.env.RENTAL_DESTROY_TIMEOUT) || 30_000,
+            ),
+          );
+        } else {
+          ctx.info(`Releasing rental to the pool...`);
+          await this.rentalPool.release(
+            rental,
+            AbortSignal.timeout(
+              Number(process.env.RENTAL_RELEASE_TIMEOUT) || 30_000,
+            ),
+          );
+          ctx.info(`Rental released`);
+        }
       } else {
         ctx.info(
           `Destroying rental with provider: ${providerName}, the provider failed to run the command`,
@@ -668,38 +692,33 @@ export class GolemSessionManager {
 
   private async initEstimatorForRental(
     rental: ResourceRental,
-    generationParams: GenerationParams,
+    proofDifficulty: number,
   ) {
     await this.estimatorService.initJobIfNotInitialized(
       rental.agreement.id,
       rental.agreement.provider.name,
       rental.agreement.provider.id,
       rental.agreement.provider.walletAddress,
-      computePrefixDifficulty(
-        generationParams.problems.find((p) => p.type === "user-prefix")
-          ?.specifier || "",
-      ) +
-        computeSuffixDifficulty(
-          generationParams.problems.find((p) => p.type === "user-suffix")
-            ?.specifier || "",
-        ),
+      proofDifficulty,
     );
   }
 
   private async initJobUploaderForRental(rental: ResourceRental) {
-    await this.jobUploaderService?.initJobIfNotInitialized(
-      rental.agreement.id,
-      rental.agreement.provider.name,
-      rental.agreement.provider.id,
-      rental.agreement.provider.walletAddress,
-    );
+    for (const uploader of this.jobUploaderServices) {
+      await uploader?.initJobIfNotInitialized(
+        rental.agreement.id,
+        rental.agreement.provider.name,
+        rental.agreement.provider.id,
+        rental.agreement.provider.walletAddress,
+      );
+    }
   }
 
   //@todo get rid of async
   private async processCommandResult(
     ctx: AppContext,
     cmd: CommandResult,
-    generationParams: GenerationParams,
+    generationParams: GenerationParamsShort,
   ): Promise<void> {
     if (cmd.results.length === 0) {
       ctx.info("No results found in the command output");
@@ -711,15 +730,6 @@ export class GolemSessionManager {
       // TODO: validation
       const addr = result.address;
 
-      const entry: ProofEntryResult = {
-        addr: addr,
-        salt: result.salt,
-        pubKey: result.pubKey,
-        provider: cmd.provider,
-        jobId: cmd.agreementId,
-        workDone: result.workDone,
-      };
-
       const isValid = validateVanityResult(ctx, result);
 
       if (!isValid.isValid) {
@@ -730,53 +740,174 @@ export class GolemSessionManager {
         ctx
           .L()
           .error(
-            `Validation failed for result (provider ${cmd.provider.id}) ${result}: ${isValid.msg}`,
+            `Validation failed for result (provider ${cmd.provider.id}) ${JSON.stringify(result)}: ${isValid.msg}`,
           );
         throw new Error(
-          `Validation failed for result (provider ${cmd.provider.id}) ${result}: ${isValid.msg}`,
+          `Validation failed for result (provider ${cmd.provider.id}) ${JSON.stringify(result)}: ${isValid.msg}`,
         );
       }
+
+      const matchingUserProblem = this.isRequestedPattern(
+        result,
+        generationParams,
+      );
+
+      const entry: ProofEntryResult = {
+        addr: addr,
+        salt: result.salt,
+        pubKey: result.pubKey,
+        provider: cmd.provider,
+        jobId: cmd.agreementId,
+        workDone: result.workDone,
+        matchingUserProblem,
+      };
 
       // if the result matches any problems we save it
-      if (result.problem) {
-        await this.dbRecorder.proofsStore(ctx, getProviderJobId(ctx), [
-          result as VanityResultMatchingProblem,
-        ]);
+      if (result.matchingProblems.length > 0) {
+        await this.dbRecorder.proofsStore(ctx, getProviderJobId(ctx), [result]);
         this.estimatorService.pushProofToQueue(entry);
-        this.jobUploaderService?.pushProofToQueue(entry);
+        for (const uploader of this.jobUploaderServices) {
+          uploader.pushProofToQueue(entry);
+        }
       }
 
-      if (this.isRequestedPattern(entry.addr, generationParams)) {
-        this.resultService.processValidatedEntry(
-          entry,
-          (jobId: string, address: string, addrDifficulty: number) => {
-            ctx.consoleInfo(
-              `Found address: ${entry.jobId}: ${entry.addr} diff: ${displayDifficulty(addrDifficulty)}`,
-            );
-          },
-        );
+      if (matchingUserProblem) {
+        await this.resultService.processValidatedEntry(entry);
+        this.consoleLogFoundAddress(ctx, entry, matchingUserProblem);
       }
       ctx.debug(`Found address: ${addr}`);
     }
   }
 
+  consoleLogFoundAddress(
+    ctx: AppContext,
+    entry: ProofEntryResult,
+    matchingProblem: Problem,
+  ) {
+    const problemToNiceDescription = {
+      "user-prefix": "🔑 User Prefix",
+      "user-suffix": "🔑 User Suffix",
+      "user-mask": "🔑 User Mask",
+      "leading-any": "➡️ Leading Characters",
+      "trailing-any": "⬅️ Trailing Characters",
+      "letters-heavy": "🔤 Letters Heavy",
+      "numbers-heavy": "🔢 Numbers Heavy",
+      "snake-score-no-case": "🐍 Snake",
+    } as const;
+    const problemDescription = problemToNiceDescription[matchingProblem.type];
+    ctx.consoleInfo(
+      `⭐ Address found: ${entry.addr} (${problemDescription}) by provider ${entry.provider.name}`,
+    );
+  }
+
   public isRequestedPattern(
-    address: string,
-    generationParams: GenerationParams,
-  ): boolean {
-    const prefixProblem = generationParams.problems.find(
-      (p) => p.type === "user-prefix",
-    );
-    const suffixProblem = generationParams.problems.find(
-      (p) => p.type === "user-suffix",
-    );
-    if (prefixProblem && address.startsWith(prefixProblem.specifier)) {
-      return true;
+    proof: VanityResult,
+    generationParams: GenerationParamsShort,
+  ): Problem | null {
+    for (const { problem, score } of proof.matchingProblems) {
+      switch (problem.type) {
+        case "user-prefix": {
+          const prefixProblem = generationParams.problems.find(
+            (p) => p.type === "user-prefix",
+          );
+          if (!prefixProblem) {
+            continue;
+          }
+          if (proof.address.startsWith(prefixProblem.specifier.toLowerCase())) {
+            return prefixProblem;
+          }
+        }
+        case "user-suffix": {
+          const suffixProblem = generationParams.problems.find(
+            (p) => p.type === "user-suffix",
+          );
+          if (!suffixProblem) {
+            continue;
+          }
+          if (proof.address.endsWith(suffixProblem.specifier.toLowerCase())) {
+            return suffixProblem;
+          }
+        }
+        case "user-mask": {
+          const maskProblem = generationParams.problems.find(
+            (p) => p.type === "user-mask",
+          );
+          if (!maskProblem) {
+            continue;
+          }
+          let match = true;
+          const addressWithout0x = proof.address.replace(/^0x/, "");
+          for (let i = 0; i < maskProblem.specifier.length; i++) {
+            const char = maskProblem.specifier[i];
+            if (char !== "x" && char !== addressWithout0x[i]) {
+              match = false;
+              break;
+            }
+          }
+          if (match) {
+            return maskProblem;
+          }
+        }
+        case "leading-any": {
+          const leadingProblem = generationParams.problems.find(
+            (p) => p.type === "leading-any",
+          );
+          if (!leadingProblem) {
+            continue;
+          }
+          if (leadingProblem.length <= score) {
+            return leadingProblem;
+          }
+        }
+        case "trailing-any": {
+          const trailingProblem = generationParams.problems.find(
+            (p) => p.type === "trailing-any",
+          );
+          if (!trailingProblem) {
+            continue;
+          }
+          if (trailingProblem.length <= score) {
+            return trailingProblem;
+          }
+        }
+        case "letters-heavy": {
+          const lettersProblem = generationParams.problems.find(
+            (p) => p.type === "letters-heavy",
+          );
+          if (!lettersProblem) {
+            continue;
+          }
+          if (lettersProblem.count <= score) {
+            return lettersProblem;
+          }
+        }
+        case "numbers-heavy": {
+          const numbersProblem = generationParams.problems.find(
+            (p) => p.type === "numbers-heavy",
+          );
+          if (!numbersProblem) {
+            continue;
+          }
+          // no condition in numbers-only, if the problem was specified and we found an address
+          // then it automatically matches
+          return numbersProblem;
+        }
+        case "snake-score-no-case": {
+          const snakeProblem = generationParams.problems.find(
+            (p) => p.type === "snake-score-no-case",
+          );
+          if (!snakeProblem) {
+            continue;
+          }
+          if (snakeProblem.count <= score) {
+            return snakeProblem;
+          }
+        }
+        default:
+          continue;
+      }
     }
-    if (suffixProblem && address.endsWith(suffixProblem.specifier)) {
-      return true;
-    }
-    return false;
+    return null;
   }
 
   public async disconnectFromGolemNetwork(ctx: AppContext): Promise<void> {

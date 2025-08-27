@@ -1,6 +1,14 @@
 import { getBytes, hexlify } from "ethers";
 import { Problem } from "./lib/db/schema";
 
+export interface GenerationParamsShort {
+  vanityAddressPrefix: GenerationPrefix | null;
+  vanityAddressSuffix: GenerationSuffix | null;
+  problems: Problem[];
+  singlePassSeconds: number;
+  publicKey: string;
+}
+
 /**
  * Interface for task generation parameters
  */

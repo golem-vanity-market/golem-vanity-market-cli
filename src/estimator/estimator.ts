@@ -90,6 +90,10 @@ export class SpeedEstimation {
     }
     return (this.currentCost - this.startCost) / (timeDiff / 3600000); // Cost per hour
   }
+
+  toString() {
+    return `Speed: ${this.speed.toFixed(2)} attempts/sec | Cost/Hour: ${this.costPerHour.toFixed(2)} units`;
+  }
 }
 
 const MAX_HISTORY_SIZE = 1000;

@@ -8,4 +8,6 @@ export interface SchedulerRecorder {
     params: GenerationParams,
     processingUnit: ProcessingUnitType,
   ): Promise<void>;
+
+  stopGenerationJob(ctx: AppContext, generationId: string): Promise<void>;
 }

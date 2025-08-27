@@ -9,10 +9,15 @@ We are also committed to transparency and will be open-sourcing the code that ru
 ## Features
 
 - **Distributed Computing**: Harnesses the Golem Network's decentralized infrastructure for both CPU and GPU-based address generation.
-- **Vanity Address Generation**: Create Ethereum addresses with unique prefixes (e.g., an address starting with `0x1337...`) or suffixes (e.g., an address ending with `...beef`).
+- **Advanced Pattern Matching**: Generate Ethereum addresses with multiple pattern types:
+  - **Prefixes**: Addresses starting with custom patterns (e.g., `0x1337...`)
+  - **Suffixes**: Addresses ending with specific patterns (e.g., `...beef`)
+  - **Mask Patterns**: Complex patterns with wildcards (e.g., `0xaabbXXXXXXXXXXXXccdd`)
+  - **Repeating Characters**: Leading/trailing identical characters (e.g., `0xaaaaaaa...`)
+  - **Character Distribution**: Letters-heavy, numbers-only, or snake patterns
 - **Flexible Processing**: Choose between CPU and GPU workers to meet your performance needs.
 - **Budget Management**: Take control of your spending with comprehensive GLM budget controls, including automatic top-ups and spending limits.
-- **Observability**: Monitor performance and metrics with built-in OpenTelemetry integration.
+- **Observability**: Monitor performance and metrics with built-in OpenTelemetry integration and Prometheus metrics endpoint.
 - **Results Export**: Conveniently save your generated addresses to a JSON file for easy access and record-keeping.
 
 ## Getting Started
@@ -177,7 +182,50 @@ npm run dev -- generate \
   --budget-limit 10
 ```
 
-### Advanced Usage Examples
+### Advanced Pattern Examples
+
+#### Mask Pattern Generation
+
+Generate addresses matching complex patterns with wildcards (use 'x' for any character):
+
+**Linux/macOS:**
+
+```bash
+npm run start -- generate \
+  --public-key ./my-key.public \
+  --vanity-address-mask 0x1234xxxxxxxxxxxxxxxxxxxxxxxxxxxx5678 \
+  --processing-unit gpu \
+  --budget-limit 15
+```
+
+**Windows:**
+
+```bash
+npm run start -- generate --public-key ./my-key.public --vanity-address-mask 0x1234xxxxxxxxxxxxxxxxxxxxxxxxxxxx5678 --processing-unit gpu --budget-limit 15
+```
+
+#### Multiple Pattern Search
+
+Search for addresses matching any of several patterns simultaneously:
+
+**Linux/macOS:**
+
+```bash
+npm run start -- generate \
+  --public-key ./my-key.public \
+  --vanity-address-prefix 0xdead \
+  --vanity-address-suffix beef \
+  --vanity-address-leading 6 \
+  --processing-unit gpu \
+  --budget-limit 25 \
+  --num-workers 2
+```
+
+**Windows:**
+
+```bash
+npm run start -- generate --public-key ./my-key.public --vanity-address-prefix 0xdead --vanity-address-suffix beef --vanity-address-leading 6 --processing-unit gpu --budget-limit 25 --num-workers 2
+```
 
 #### GPU-Accelerated Generation
 
@@ -198,6 +246,35 @@ npm run start -- generate \
 
 ```bash
 npm run start -- generate --public-key ./my-key.public --vanity-address-prefix 0xbeef --processing-unit gpu --budget-limit 20 --num-workers 3
+```
+
+#### Advanced Character Patterns
+
+Generate addresses with specific character distributions:
+
+**Linux/macOS:**
+
+```bash
+# Letters-heavy addresses (containing many a-f characters)
+npm run start -- generate \
+  --public-key ./my-key.public \
+  --vanity-address-letters-heavy 35 \
+  --processing-unit cpu \
+  --budget-limit 12
+
+# Numbers-only addresses (0-9 characters only)
+npm run start -- generate \
+  --public-key ./my-key.public \
+  --vanity-address-numbers-only \
+  --processing-unit gpu \
+  --budget-limit 8
+
+# Snake pattern (repeating character pairs)
+npm run start -- generate \
+  --public-key ./my-key.public \
+  --vanity-address-snake 15 \
+  --processing-unit gpu \
+  --budget-limit 18
 ```
 
 #### Generate Multiple Addresses and Export the Results
@@ -255,8 +332,18 @@ This command generates vanity addresses based on your specified parameters.
 #### Required Options:
 
 - `--public-key <path>`: Path to the file containing your public key.
-- `--vanity-address-prefix <prefix>`: The desired vanity prefix for your address (1-10 alphanumeric characters).
-- `--vanity-address-suffix <suffix>`: The desired vanity suffix for your address (1-10 alphanumeric characters).
+- `--budget-limit <amount>`: The total budget cap in GLM for the entire generation process.
+
+#### Pattern Options (at least one required):
+
+- `--vanity-address-prefix <prefix>`: Search for addresses starting with the specified prefix (1-16 hex characters).
+- `--vanity-address-suffix <suffix>`: Search for addresses ending with the specified suffix (1-16 hex characters).
+- `--vanity-address-mask <mask>`: Search for addresses matching a pattern with wildcards (use 'x' for any character).
+- `--vanity-address-leading <length>`: Find addresses with at least N identical leading characters.
+- `--vanity-address-trailing <length>`: Find addresses with at least N identical trailing characters.
+- `--vanity-address-letters-heavy <count>`: Generate addresses containing at least N letters (a-f).
+- `--vanity-address-numbers-only`: Search for addresses composed only of numbers (0-9).
+- `--vanity-address-snake <count>`: Find addresses with at least N pairs of adjacent identical characters.
 
 #### Optional Options:
 
@@ -274,18 +361,22 @@ This command generates vanity addresses based on your specified parameters.
 
 - `--budget-initial <amount>`: The initial GLM amount for the payment allocation (default: `1`).
 - `--budget-top-up <amount>`: The amount in GLM to add to the allocation when its balance runs low (default: `1`).
-- `--budget-limit <amount>`: **(Required)** The total budget cap in GLM for the entire generation process. Work stops when this limit is reached.
 
 ## Cost Estimation
 
 The cost of generating a vanity address in GLM tokens depends on several factors:
 
-- **Prefix Difficulty**: Longer prefixes are exponentially more difficult and therefore more expensive to find.
+- **Pattern Complexity**: Different patterns have varying difficulty levels:
+  - **Prefix/Suffix**: Exponentially more difficult with length (16^N)
+  - **Mask Patterns**: Difficulty based on non-wildcard characters
+  - **Character Distribution**: Letters-heavy and numbers-only patterns have statistical difficulty
+  - **Snake Patterns**: Complexity increases with required adjacent pairs
 - **Processing Unit**: GPUs are generally faster but may have a higher cost per hour than CPUs.
 - **Number of Workers**: Using more workers can speed up the process but will increase the overall cost.
+- **Multiple Patterns**: Searching for multiple patterns simultaneously can improve efficiency.
 - **Provider Pricing**: The Golem Network is a marketplace, and provider prices can fluctuate.
 
-The tool provides real-time cost estimates and difficulty calculations before you commit to starting the generation process.
+The tool provides real-time cost estimates and difficulty calculations for each pattern type before you commit to starting the generation process.
 
 ### Pattern Generation Difficulty
 
@@ -380,7 +471,7 @@ You can configure the tool using the following environment variables:
 | `RENTAL_DESTROY_TIMEOUT`            | Timeout (ms) for destroying a rental                    | `30000` (30s)                 |
 | `MAX_CONSECUTIVE_ALLOCATION_ERRORS` | Maximum consecutive allocation errors before giving up  | `10`                          |
 
-## Status Monitoring (New in v0.1.9)
+## Status Monitoring (Enhanced in v0.1.10)
 
 The CLI now includes an optional HTTP status server for real-time monitoring of your vanity address generation progress. This feature is particularly useful for long-running jobs or when integrating with external monitoring systems.
 
@@ -419,10 +510,45 @@ curl http://localhost:8080/estimator
 
 This monitoring feature provides real-time insights into:
 
-- Generation progress and found addresses
-- Provider performance and costs
-- Network connectivity status
-- Time and difficulty estimates
+- Generation progress and found addresses across all pattern types
+- Provider performance and costs for different processing units
+- Network connectivity status and available offers
+- Time and difficulty estimates for complex pattern combinations
+- Multi-pattern search progress and efficiency metrics
+
+## Prometheus Metrics Integration
+
+The CLI automatically exposes performance metrics in Prometheus format via an embedded HTTP server on port 9464. This allows you to integrate with monitoring systems like Grafana for advanced analytics and alerting.
+
+### Accessing Prometheus Metrics
+
+The metrics endpoint is automatically available when the CLI is running:
+
+```bash
+# View all available metrics in Prometheus format
+curl http://localhost:9464/metrics
+
+# Example metrics include:
+# - vanity_generation_attempts_total
+# - vanity_addresses_found_total
+# - provider_performance_stats
+# - budget_utilization_metrics
+# - pattern_difficulty_estimates
+```
+
+### Integration with Monitoring Systems
+
+You can configure Prometheus to scrape these metrics by adding the following to your `prometheus.yml`:
+
+```yaml
+scrape_configs:
+  - job_name: "golem-vanity-cli"
+    static_configs:
+      - targets: ["localhost:9464"]
+    scrape_interval: 15s
+```
+
+This enables comprehensive monitoring dashboards and alerting for your vanity address generation process.
 
 ## Troubleshooting
 
@@ -443,7 +569,9 @@ This monitoring feature provides real-time insights into:
     - Consider switching the processing unit type (e.g., from `gpu` to `cpu`) as there may be more providers of a different type available.
 
 4.  **Generation is taking too long**:
-    - Try a shorter, less complex prefix for faster results.
+    - Try simpler patterns (shorter prefixes/suffixes, fewer required characters).
+    - Use multiple pattern types simultaneously to increase hit probability.
+    - Consider mask patterns with more wildcards ('x') for easier matching.
     - Increase the `--num-workers` to parallelize the search across more providers.
     - If you are using CPUs, switching to `--processing-unit gpu` can significantly improve performance.
 
@@ -451,8 +579,9 @@ This monitoring feature provides real-time insights into:
 
 Application logs are stored in the `logs/` directory for debugging purposes.
 
-- `logs.jsonl`: Contains the main application logs.
-- `metrics.jsonl`: Contains metrics data for performance analysis.
+- `logs.jsonl`: Contains the main application logs with OpenTelemetry trace correlation.
+
+**Note**: Performance metrics are no longer written to `metrics.jsonl` files. Instead, they are available in real-time via the Prometheus endpoint at `http://localhost:9464/metrics`.
 
 ### Support
 

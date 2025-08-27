@@ -31,3 +31,17 @@ export const displayTime = (extraLabel: string, seconds: number): string => {
 
   return "0 seconds"; // Edge case for 0 input
 };
+
+export const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return new Error(String(error)).message;
+};
+
+export const safeStringifyStdout = (value: string | ArrayBuffer): string => {
+  if (value instanceof ArrayBuffer) {
+    return new TextDecoder().decode(value);
+  }
+  return value;
+};

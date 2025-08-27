@@ -1,3 +1,5 @@
+import { sleep } from "@golem-sdk/golem-js";
+
 export async function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -13,4 +15,8 @@ export async function withTimeout<T>(
   return Promise.race([promise, timeout(timeoutMs)]).finally(() =>
     clearTimeout(timeoutId),
   );
+}
+
+export async function sleepMs(millis: number): Promise<void> {
+  await sleep(millis, true);
 }
